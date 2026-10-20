@@ -10,6 +10,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
+<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
 <style>
 /* Layout: meja gudang — panel scan + ringkasan di kiri, kolom per kurir di kanan, seperti lembar Excel harian */
 :root {
@@ -43,6 +44,7 @@
   --ok: #5cc98a; --warn: #f0a443; --bad: #ff8a80; --chip: #22303c; color-scheme: dark;
 }
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 body { background: var(--bg); color: var(--fg); font-family: var(--f-body); font-size: 15px; line-height: 1.45; }
 .wrap { max-width: 1400px; margin: 0 auto; padding-block: 16px 40px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); display: grid; gap: 16px; }
 h1, h2, h3 { font-family: var(--f-display); margin: 0; text-wrap: balance; letter-spacing: .01em; }
@@ -110,6 +112,13 @@ input, select, textarea { background: var(--panel); border: 1px solid var(--line
 .hist button { display: flex; justify-content: space-between; text-align: left; font-variant-numeric: tabular-nums; border-color: transparent; }
 .hist button.cur { border-color: var(--accent); }
 .hist .n { font-family: var(--f-mono); }
+.cams { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.cams button { padding: 10px 12px; }
+.cam { display: grid; gap: 8px; }
+.cam #camView { width: 100%; border-radius: 8px; overflow: hidden; background: #000; min-height: 200px; }
+.cam #camView video { width: 100% !important; height: auto !important; display: block; }
+.cam .row { display: flex; gap: 8px; align-items: center; justify-content: space-between; }
+.cam #camLast { font-family: var(--f-mono); font-size: .85rem; overflow-wrap: anywhere; min-width: 0; }
 .saved { font-size: .85rem; color: var(--ok); }
 .saved.bad { color: var(--bad); }
 .toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(16px + env(safe-area-inset-bottom, 0px)); background: var(--fg); color: var(--bg); padding: 10px 14px; border-radius: 8px; display: flex; gap: 12px; align-items: center; z-index: 20; max-width: calc(100% - 32px); }
@@ -144,11 +153,21 @@ input, select, textarea { background: var(--panel); border: 1px solid var(--line
       <section class="panel scan">
         <h2>Scan / input resi</h2>
         <input id="resi" autocomplete="off" spellcheck="false" placeholder="Scan atau ketik resi, lalu Enter">
+        <div class="cams">
+          <button id="camBtn" class="primary">Scan pakai kamera</button>
+          <button id="photoBtn">Foto barcode</button>
+          <input type="file" id="photoFile" accept="image/*" capture="environment" hidden>
+        </div>
+        <div class="cam" id="camPanel" hidden>
+          <div id="camView"></div>
+          <div class="row"><span id="camLast" class="hint">Arahkan kamera ke barcode resi.</span><button id="camStop">Selesai</button></div>
+        </div>
+        <div id="camFile" hidden></div>
         <div class="row">
           <label for="kurirPilih" class="hint">Kurir</label>
           <select id="kurirPilih"></select>
         </div>
-        <div class="msg" id="msg" role="status" aria-live="polite">Kurir terdeteksi otomatis dari pola nomor resi. Bisa tempel banyak resi sekaligus (satu per baris).</div>
+        <div class="msg" id="msg" role="status" aria-live="polite">Kurir terdeteksi otomatis dari pola nomor resi. Di HP, tekan "Scan pakai kamera" lalu arahkan ke barcode resi.</div>
       </section>
 
       <section class="panel">
@@ -700,6 +719,59 @@ input, select, textarea { background: var(--panel); border: 1px solid var(--line
       ta.remove();
     }
   };
+
+  // ---------- scan kamera HP ----------
+  // Live: kamera terus membaca barcode. Foto: ambil gambar label, barcode dibaca dari foto
+  // (cadangan untuk tampilan yang tidak mengizinkan kamera langsung).
+  var QR = window.__Html5QrcodeLibrary__ || null, live = null, lastCam = "", lastCamAt = 0;
+  function camFormats() {
+    var F = QR.Html5QrcodeSupportedFormats;
+    return ["CODE_128", "CODE_39", "CODE_93", "EAN_13", "EAN_8", "UPC_A", "ITF", "CODABAR", "QR_CODE", "DATA_MATRIX", "PDF_417"]
+      .map(function (n) { return F[n]; }).filter(function (v) { return v != null; });
+  }
+  function camReader(id) { return new QR.Html5Qrcode(id, { formatsToSupport: camFormats(), verbose: false, experimentalFeatures: { useBarCodeDetectorIfSupported: true } }); }
+  function noLib() { say("bad", "Pembaca barcode belum termuat. Periksa koneksi internet lalu muat ulang halaman."); }
+  function onCamCode(text) {
+    var r = norm(text), now = Date.now();
+    if (!r || (r === lastCam && now - lastCamAt < 3000)) return;
+    lastCam = r; lastCamAt = now;
+    submit([r]);
+    $("camLast").textContent = "Terbaca: " + r;
+    try { if (navigator.vibrate) navigator.vibrate(80); } catch (e) {}
+  }
+  function stopCam() {
+    var l = live; live = null;
+    $("camPanel").hidden = true; $("camBtn").hidden = false;
+    if (l) l.stop().then(function () { l.clear(); }, function () {});
+  }
+  $("camBtn").onclick = function () {
+    if (!QR) return noLib();
+    if (live) return;
+    $("camPanel").hidden = false; $("camBtn").hidden = true;
+    $("camLast").textContent = "Arahkan kamera ke barcode resi.";
+    live = camReader("camView");
+    live.start({ facingMode: "environment" }, {
+      fps: 10,
+      qrbox: function (w, h) { return { width: Math.floor(w * 0.9), height: Math.max(80, Math.floor(Math.min(h, w) * 0.45)) }; }
+    }, onCamCode, function () {}).catch(function () {
+      live = null; $("camPanel").hidden = true; $("camBtn").hidden = false;
+      say("warn", "Kamera tidak bisa dibuka di sini. Pakai tombol <b>Foto barcode</b>: ambil foto label resi, nomornya terbaca otomatis.");
+    });
+  };
+  $("camStop").onclick = stopCam;
+  $("photoBtn").onclick = function () {
+    if (!QR) return noLib();
+    $("photoFile").value = ""; $("photoFile").click();
+  };
+  $("photoFile").addEventListener("change", function () {
+    var f = this.files && this.files[0]; if (!f) return;
+    if (live) stopCam();
+    say("", "Membaca barcode dari foto...");
+    camReader("camFile").scanFile(f, false).then(function (text) { lastCam = ""; onCamCode(text); }, function () {
+      beep(false);
+      say("bad", "Barcode tidak terbaca. Foto lebih dekat dengan cahaya terang, pastikan barcode lurus dan tidak buram.");
+    });
+  });
 
   // isi pilihan kurir
   $("kurirPilih").innerHTML = '<option value="AUTO">Otomatis (deteksi dari resi)</option>' +
