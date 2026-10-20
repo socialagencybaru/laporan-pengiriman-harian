@@ -6,7 +6,7 @@ Laporan Pengiriman Harian SAB Online. Aplikasi web satu halaman untuk mencatat r
 
 Buka `index.html` di browser (Chrome atau Edge). Aplikasi ini tidak butuh server. Koneksi internet hanya dipakai untuk memuat font dan pustaka PDF/Excel.
 
-1. Arahkan kursor ke kotak kuning, lalu scan resi. Scanner biasanya otomatis menekan Enter.
+1. Arahkan kursor ke kotak kuning, lalu scan resi. Scanner biasanya otomatis menekan Enter. Di HP, tekan **Scan pakai kamera** lalu arahkan kamera ke barcode resi, atau pakai **Foto barcode**.
 2. Resi otomatis masuk ke kelompok kurirnya, lengkap dengan jumlah per kurir dan total.
 3. Isi catatan pendingan (Pesanan Shopee, Pendingan, PO, dan catatan bebas).
 4. Cetak laporan PDF harian atau rekap sebulan, atau unduh Excel dengan format yang sama seperti file "Pengiriman Harian".
@@ -16,6 +16,7 @@ Buka `index.html` di browser (Chrome atau Edge). Aplikasi ini tidak butuh server
 - Deteksi kurir otomatis dari pola nomor resi. Resi yang tidak dikenali masuk ke "Lainnya" dan bisa dipindah ke kurir lain secara manual.
 - Resi yang discan dua kali di hari yang sama ditolak. Ada peringatan kalau resi pernah discan di tanggal lain.
 - Bisa menempel banyak resi sekaligus (satu resi per baris).
+- Scan barcode resi pakai kamera HP, langsung dari kamera atau dari foto label. Untuk kamera langsung, halaman harus dibuka lewat https (misalnya GitHub Pages). Kalau tidak, pakai tombol "Foto barcode".
 - Riwayat per tanggal.
 - Cetak PDF "Laporan Pengiriman SAB Online", baik harian maupun rekap sebulan.
 - Simpan daftar harian ke CSV, cadangkan semua data ke JSON, dan buka kembali file cadangan.
