@@ -19,7 +19,7 @@ Buka `index.html` di browser (Chrome atau Edge). Aplikasi ini tidak butuh server
 - Scan barcode resi pakai kamera HP, langsung dari kamera atau dari foto label. Untuk kamera langsung, halaman harus dibuka lewat https (misalnya GitHub Pages). Kalau tidak, pakai tombol "Foto barcode".
 - Riwayat per tanggal.
 - Cetak PDF "Laporan Pengiriman SAB Online", baik harian maupun rekap sebulan.
-- Simpan daftar harian ke CSV, cadangkan semua data ke JSON, dan buka kembali file cadangan.
+- Simpan daftar harian ke CSV dan cadangkan semua data ke JSON. Tombol "Buka file laporan" bisa membuka file cadangan (.json), daftar harian (.csv), Excel dari aplikasi ini, maupun file Excel bulanan "Pengiriman Harian" yang lama (satu sheet per tanggal, misalnya "1 OKT").
 - Unduh Excel per hari atau sebulan (satu sheet per tanggal), atau salin tabel untuk ditempel ke Excel.
 
 ## Pola resi
