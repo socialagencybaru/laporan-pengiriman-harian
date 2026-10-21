@@ -200,10 +200,10 @@ input, select, textarea { background: var(--panel); border: 1px solid var(--line
         <div class="actions">
           <button id="csvDay">Simpan daftar hari ini (.csv)</button>
           <button id="backupBtn">Cadangkan semua data (.json)</button>
-          <button id="restoreBtn">Buka file cadangan</button>
-          <input type="file" id="restoreFile" accept=".json,application/json" hidden>
+          <button id="restoreBtn">Buka file laporan</button>
+          <input type="file" id="restoreFile" accept=".json,.csv,.xlsx,.xls,application/json,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" hidden>
         </div>
-        <div class="hint">Data tersimpan otomatis di browser ini. Cadangkan rutin supaya aman, dan pakai "Buka file cadangan" untuk memindahkan data ke komputer lain.</div>
+        <div class="hint">Data tersimpan otomatis di browser ini. Cadangkan rutin supaya aman. "Buka file laporan" bisa membuka file cadangan (.json), daftar harian (.csv), atau Excel "Pengiriman Harian" (.xlsx), lalu datanya masuk ke riwayat.</div>
       </section>
 
       <section class="panel">
@@ -680,28 +680,148 @@ input, select, textarea { background: var(--panel); border: 1px solid var(--line
     saveFile("Cadangan Pengiriman Harian " + iso(new Date()) + ".json", JSON.stringify(out, null, 1), "application/json");
   };
   $("restoreBtn").onclick = function () { $("restoreFile").value = ""; $("restoreFile").click(); };
+  // Buka file: cadangan .json, daftar harian .csv, atau Excel (.xlsx/.xls) berformat "Pengiriman Harian"
+  var BULAN_KEY = { JAN: 1, FEB: 2, MAR: 3, APR: 4, MEI: 5, MAY: 5, JUN: 6, JUL: 7, AGU: 8, AGS: 8, AGT: 8, AUG: 8, SEP: 9, OKT: 10, OCT: 10, NOV: 11, NOP: 11, DES: 12, DEC: 12 };
+  function courierFromLabel(label) {
+    var h = String(label || "").toUpperCase().replace(/[^A-Z&]/g, "");
+    if (!h) return null;
+    if (h.indexOf("CARGO") >= 0) return "JNTC";
+    if (h.indexOf("SHOP") >= 0 || h.indexOf("SPX") >= 0) return "SPX";
+    if (h.indexOf("INSTAN") >= 0 || h.indexOf("SAMEDAY") >= 0) return "INSTAN";
+    if (h.indexOf("IDEXP") >= 0) return "IDX";
+    if (h.indexOf("WAHANA") >= 0) return "WAHANA";
+    if (h.indexOf("JNE") >= 0) return "JNE";
+    if (h.indexOf("JNT") >= 0 || h.indexOf("J&T") >= 0) return "JNT";
+    if (h.indexOf("POS") >= 0) return "POS";
+    if (h.indexOf("LAIN") >= 0) return "LAIN";
+    return null;
+  }
+  function courierFromName(name) {
+    var n = String(name || "").trim().toLowerCase();
+    for (var i = 0; i < COURIERS.length; i++) if (COURIERS[i].name.toLowerCase() === n || COURIERS[i].id.toLowerCase() === n) return COURIERS[i].id;
+    return courierFromLabel(name);
+  }
+  function readNotes(cells, dst) {
+    var inNotes = false, notes = [];
+    cells.forEach(function (v) {
+      var t = String(v == null ? "" : v).trim(); if (!t) return;
+      var m;
+      if ((m = t.match(/^SHOPEE\s*:\s*(\d+)/i))) { dst.pesanan = m[1]; return; }
+      if ((m = t.match(/^Pendingan\s*:\s*(\d+)(?:\s*\[\s*PO\s*:\s*(\d+)\s*\])?/i))) { dst.pending = m[1]; if (m[2]) dst.po = m[2]; return; }
+      if (/^CATATAN$/i.test(t)) { inNotes = true; return; }
+      if (inNotes) notes.push(t);
+    });
+    if (notes.length) dst.catatan = notes.join("\n");
+  }
+  function parseCsv(text) {
+    var rows = [], row = [], cell = "", q = false;
+    text = text.replace(/^﻿/, "");
+    for (var i = 0; i < text.length; i++) {
+      var ch = text[i];
+      if (q) { if (ch === '"') { if (text[i + 1] === '"') { cell += '"'; i++; } else q = false; } else cell += ch; }
+      else if (ch === '"') q = true;
+      else if (ch === "," || ch === ";") { row.push(cell); cell = ""; }
+      else if (ch === "\n" || ch === "\r") { if (ch === "\r" && text[i + 1] === "\n") i++; row.push(cell); rows.push(row); row = []; cell = ""; }
+      else cell += ch;
+    }
+    if (cell || row.length) { row.push(cell); rows.push(row); }
+    return rows;
+  }
+  function daysFromCsv(text) {
+    var rows = parseCsv(text), head = (rows[0] || []).map(function (h) { return h.trim().toLowerCase(); });
+    var iT = head.indexOf("tanggal"), iR = head.indexOf("resi"), iK = head.indexOf("kurir"), iJ = head.indexOf("jam scan");
+    if (iR < 0) return null;
+    var days = {}, last = null;
+    rows.slice(1).forEach(function (r, n) {
+      var k = iT >= 0 ? String(r[iT] || "").trim() : cur, resi = String(r[iR] || "").trim();
+      if (/^\d{4}-\d{2}-\d{2}$/.test(k) && resi) {
+        last = k; days[k] = days[k] || { items: [] };
+        var t = parseIso(k).getTime() + n * 1000, jm = iJ >= 0 && String(r[iJ] || "").match(/^(\d{1,2}):(\d{2})/);
+        if (jm) t = parseIso(k).getTime() + (+jm[1] * 60 + +jm[2]) * 60000 + n;
+        days[k].items.push({ r: resi, c: iK >= 0 ? courierFromName(r[iK]) : null, t: t });
+        return;
+      }
+      var label = String(r[0] || "").trim().toLowerCase(), val = String(r[1] || "");
+      if (!last || !label) return;
+      if (label === "pesanan shopee") days[last].pesanan = val;
+      else if (label === "pendingan") days[last].pending = val;
+      else if (label === "po") days[last].po = val;
+      else if (label === "catatan") days[last].catatan = val;
+    });
+    return days;
+  }
+  function daysFromWorkbook(buf, filename) {
+    var wb = XLSX.read(buf, { type: "array" });
+    var ym = String(filename).match(/(20\d\d)/), year = ym ? +ym[1] : parseIso(cur).getFullYear();
+    var days = {};
+    wb.SheetNames.forEach(function (name) {
+      var m = String(name).trim().toUpperCase().match(/^(\d{1,2})\s*([A-Z]{3})/);
+      if (!m || !BULAN_KEY[m[2]]) return;
+      var k = year + "-" + pad(BULAN_KEY[m[2]]) + "-" + pad(+m[1]);
+      var rows = XLSX.utils.sheet_to_json(wb.Sheets[name], { header: 1, raw: false, defval: null });
+      var head = rows[0] || [], cols = [];
+      head.forEach(function (h, j) { var c = courierFromLabel(h); if (c) cols.push({ j: j + 1, c: c }); });
+      if (!cols.length) return;
+      var d = days[k] = days[k] || { items: [] }, base = parseIso(k).getTime(), n = 0, rest = [];
+      var resiCols = {}; cols.forEach(function (x) { resiCols[x.j] = x.c; });
+      rows.slice(2).forEach(function (r) {
+        (r || []).forEach(function (v, j) {
+          if (v == null || String(v).trim() === "") return;
+          if (resiCols[j]) {
+            var t = String(v).trim();
+            if (/^(resi|column\d*)$/i.test(t) || /^=/.test(t)) return;
+            d.items.push({ r: t, c: resiCols[j], t: base + (n++) * 1000 });
+          } else if (j > cols[cols.length - 1].j) rest.push(v);
+        });
+      });
+      readNotes(rest, d);
+    });
+    return days;
+  }
+  function importDays(days, what) {
+    var nDays = 0, nItems = 0, touched = [];
+    Object.keys(days).sort().forEach(function (k) {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(k)) return;
+      var src = days[k], dst = day(k), have = {};
+      touched.push(k);
+      if (dst.sample) { dst.items = dst.items.filter(function (it) { return !it.s; }); delete dst.sample; dst.pesanan = dst.pending = dst.po = dst.catatan = ""; }
+      dst.items.forEach(function (it) { have[it.r] = true; });
+      (src.items || []).forEach(function (it) {
+        var r = norm(it && it.r); if (!r || have[r]) return;
+        have[r] = true; nItems++;
+        dst.items.push({ r: r, c: BY_ID[it.c] ? it.c : detect(r), t: +it.t || Date.now() });
+      });
+      ["pesanan", "pending", "po", "catatan"].forEach(function (fl) { if (!dst[fl] && src[fl]) dst[fl] = String(src[fl]); });
+      nDays++;
+    });
+    if (!nDays) { say("bad", "Tidak ada data pengiriman yang bisa dibaca dari " + esc(what) + "."); return; }
+    save(touched);
+    if (touched.indexOf(cur) < 0) cur = touched[touched.length - 1];
+    lastAdded = null; render();
+    say("ok", esc(what) + " dibuka: " + nDays + " hari, " + nItems + " resi baru ditambahkan. Resi yang sudah ada tidak digandakan.");
+  }
   $("restoreFile").addEventListener("change", function () {
     var f = this.files && this.files[0]; if (!f) return;
+    var name = f.name || "file", ext = (name.match(/\.([a-z0-9]+)$/i) || [, ""])[1].toLowerCase();
     var rd = new FileReader();
+    rd.onerror = function () { say("bad", "File tidak bisa dibaca. Coba pilih ulang file-nya."); };
+    if (ext === "xlsx" || ext === "xls") {
+      if (!needLib()) return;
+      rd.onload = function () {
+        var days;
+        try { days = daysFromWorkbook(new Uint8Array(rd.result), name); } catch (e) { say("bad", "File Excel ini tidak bisa dibuka. Pastikan file-nya tidak rusak atau terkunci password."); return; }
+        importDays(days, "File Excel");
+      };
+      rd.readAsArrayBuffer(f);
+      return;
+    }
     rd.onload = function () {
-      var data;
-      try { data = JSON.parse(rd.result); } catch (e) { say("bad", "File ini bukan cadangan yang valid."); return; }
-      if (!data || !data.days || typeof data.days !== "object") { say("bad", "File ini bukan cadangan Laporan Pengiriman Harian."); return; }
-      var nDays = 0, nItems = 0;
-      Object.keys(data.days).forEach(function (k) {
-        if (!/^\d{4}-\d{2}-\d{2}$/.test(k)) return;
-        var src = data.days[k], dst = day(k), have = {};
-        dst.items.forEach(function (it) { have[it.r] = true; });
-        (src.items || []).forEach(function (it) {
-          var r = norm(it && it.r); if (!r || have[r]) return;
-          have[r] = true; nItems++;
-          dst.items.push({ r: r, c: BY_ID[it.c] ? it.c : detect(r), t: +it.t || Date.now() });
-        });
-        ["pesanan", "pending", "po", "catatan"].forEach(function (fl) { if (!dst[fl] && src[fl]) dst[fl] = String(src[fl]); });
-        nDays++;
-      });
-      save(); render();
-      say("ok", "Cadangan dibuka: " + nDays + " hari, " + nItems + " resi baru ditambahkan. Resi yang sudah ada tidak digandakan.");
+      var text = String(rd.result || ""), data = null;
+      if (ext !== "csv") { try { data = JSON.parse(text); } catch (e) {} }
+      if (data && data.days && typeof data.days === "object") return importDays(data.days, "Cadangan");
+      var days = daysFromCsv(text);
+      if (days) return importDays(days, "File CSV");
+      say("bad", "File ini tidak dikenali. Pilih file cadangan (.json), daftar harian (.csv), atau Excel laporan (.xlsx) dari aplikasi ini.");
     };
     rd.readAsText(f);
   });
