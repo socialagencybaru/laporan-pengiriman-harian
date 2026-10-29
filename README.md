@@ -16,7 +16,7 @@ Buka `index.html` di browser (Chrome atau Edge). Aplikasi ini tidak butuh server
 - Logo SAB Online di samping judul aplikasi dan di laporan PDF.
 - Deteksi kurir otomatis dari pola nomor resi. Resi yang tidak dikenali masuk ke "Lainnya" dan bisa dipindah ke kurir lain secara manual.
 - Pengecekan jumlah karakter resi sesuai kurirnya (misalnya J&T Express `JY` harus 12 karakter). Resi yang kurang atau kelebihan karakter ditolak dengan pesan SALAH dan tidak disimpan, jadi bisa langsung discan ulang.
-- Resi yang discan dua kali di hari yang sama ditolak. Ada peringatan kalau resi pernah discan di tanggal lain.
+- Satu resi hanya bisa dipakai sekali. Resi yang sudah ada di tanggal mana pun ditolak dan tidak disimpan.
 - Bisa menempel banyak resi sekaligus (satu resi per baris).
 - Scan barcode resi pakai kamera HP, langsung dari kamera atau dari foto label. Untuk kamera langsung, halaman harus dibuka lewat https (misalnya GitHub Pages). Kalau tidak, pakai tombol "Foto barcode".
 - Riwayat per tanggal.
@@ -50,4 +50,8 @@ Kalau `api.php` dan `.htaccess` diupload ke folder yang sama dengan `index.html`
 - Beberapa komputer dan HP bisa scan bersamaan. Yang dikirim ke server hanya perubahannya (resi ditambah, dihapus, atau dipindah kurir, dan catatan), lalu server menggabungkannya, jadi resi dari perangkat lain tidak tertimpa. Resi dari perangkat lain muncul dalam sekitar 15 detik.
 - Setiap perubahan dikirim ke server dalam beberapa detik, ditambah setiap 5 menit dan saat tab ditutup. Data di browser tetap disimpan sebagai cadangan kalau internet putus, lalu dikirim ulang otomatis.
 - Data per tanggal ada di `data/hari/`, dan cadangan lengkap harian di `data/cadangan/` (disimpan 120 hari). Tombol **Cadangan di server** menampilkan dan mengunduh cadangan itu. Folder `data` ditutup dari akses web.
-- Lupa PIN: hapus `data/config.json` lewat File Manager, lalu buat PIN baru dari aplikasi. Datanya tidak ikut terhapus.
+- PIN bisa diganti lewat tombol **Ganti PIN** (perlu PIN lama). Lupa PIN: hapus `data/config.json` lewat File Manager, lalu buat PIN baru dari aplikasi. Datanya tidak ikut terhapus.
+
+## Cadangan file bulanan
+
+Setiap komputer wajib membuat file cadangan (.json) minimal sebulan sekali. Di hari terakhir tiap bulan muncul pengingat. Kalau komputer belum pernah membuat cadangan, atau cadangan akhir bulan lalu terlewat, input resi dikunci sampai tombol **Cadangkan sekarang** ditekan.

@@ -1,8 +1,8 @@
 <?php
 // Penyimpanan Laporan Pengiriman Harian di server (Hostinger).
 // Data per tanggal di data/hari/YYYY-MM-DD.json, cadangan harian di data/cadangan/.
-// Semua akses data butuh PIN. PIN dibuat sekali dari aplikasi; untuk mengganti PIN,
-// hapus file data/config.json lewat File Manager lalu buat PIN baru dari aplikasi.
+// Semua akses data butuh PIN. PIN dibuat sekali dari aplikasi dan bisa diganti lewat tombol Ganti PIN.
+// Kalau lupa PIN, hapus file data/config.json lewat File Manager lalu buat PIN baru dari aplikasi.
 
 date_default_timezone_set('Asia/Jakarta');
 header('Content-Type: application/json; charset=utf-8');
@@ -98,6 +98,17 @@ function bersihkan($d) {
 
 // Cek PIN saja, misalnya sebelum mengosongkan satu tanggal
 if ($a === 'cek') out(200, array('ok' => true));
+
+// Ganti PIN: PIN lama dicek di atas (X-PIN), PIN baru di body
+if ($a === 'gantipin') {
+  if (!$post) out(405, array('ok' => false));
+  $baru = isset($body['baru']) ? (string)$body['baru'] : '';
+  if (strlen($baru) < 4 || strlen($baru) > 32) out(400, array('ok' => false, 'error' => 'PIN baru minimal 4 karakter.'));
+  $config['pin'] = password_hash($baru, PASSWORD_DEFAULT);
+  $config['diganti'] = date('c');
+  if (!tulis($DATA . '/config.json', json_encode($config))) out(500, array('ok' => false, 'error' => 'PIN tidak bisa disimpan.'));
+  out(200, array('ok' => true));
+}
 
 if ($a === 'load') {
   // since: hanya kirim tanggal yang berubah sejak waktu itu; keys: semua tanggal yang ada (untuk deteksi tanggal yang dihapus)

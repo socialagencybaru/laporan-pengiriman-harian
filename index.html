@@ -112,6 +112,7 @@ input, select, textarea { background: var(--panel); border: 1px solid var(--line
 .group li button { padding: 1px 7px; font-size: .85rem; line-height: 1.3; }
 .empty { background: var(--panel); border: 1px dashed var(--line); border-radius: 10px; padding: 28px; text-align: center; color: var(--muted); }
 
+.banner.wajib { background: #fdecea; border-color: var(--bad); }
 .banner { background: var(--scan); border: 1px solid var(--scan-line); border-radius: 8px; padding: 10px 12px; display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between; }
 .hist { display: grid; gap: 4px; max-height: 260px; overflow-y: auto; }
 .hist button { display: flex; justify-content: space-between; text-align: left; font-variant-numeric: tabular-nums; border-color: transparent; }
@@ -223,12 +224,21 @@ input, select, textarea { background: var(--panel); border: 1px solid var(--line
         <div class="actions">
           <button id="saveNow" class="primary">Simpan sekarang</button>
           <button id="srvBackups" hidden>Cadangan di server</button>
+          <button id="pinChangeBtn" hidden>Ganti PIN</button>
           <button id="csvDay">Simpan daftar hari ini (.csv)</button>
           <button id="backupBtn">Cadangkan semua data (.json)</button>
           <button id="restoreBtn">Buka file laporan</button>
           <input type="file" id="restoreFile" accept=".json,.csv,.xlsx,.xls,application/json,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" hidden>
         </div>
         <ul class="srvlist" id="srvList" hidden></ul>
+        <div class="srvbox" id="pinChange" hidden>
+          <p><b>Ganti PIN server.</b> PIN baru berlaku di semua komputer dan HP; perangkat lain akan diminta PIN baru.</p>
+          <input type="password" id="pinOld" inputmode="numeric" autocomplete="current-password" placeholder="PIN lama">
+          <input type="password" id="pinNew" inputmode="numeric" autocomplete="new-password" placeholder="PIN baru">
+          <input type="password" id="pinNew2" inputmode="numeric" autocomplete="new-password" placeholder="Ulangi PIN baru">
+          <div class="actions" style="margin-top:8px"><button id="pinChangeSave" class="primary">Simpan PIN baru</button><button id="pinChangeCancel">Batal</button></div>
+          <p id="pinChangeErr" class="err"></p>
+        </div>
         <div class="hint">Data tersimpan otomatis di browser ini setiap ada perubahan dan setiap 5 menit. Saat tab ditutup, data disimpan dulu dan muncul peringatan. Cadangkan rutin supaya aman. "Buka file laporan" bisa membuka file cadangan (.json), daftar harian (.csv), atau Excel "Pengiriman Harian" (.xlsx), lalu datanya masuk ke riwayat.</div>
       </section>
 
@@ -350,6 +360,7 @@ input, select, textarea { background: var(--panel); border: 1px solid var(--line
     try { (keys || [cur]).forEach(writeDay); storageOk = true; savedAt = new Date(); }
     catch (e) { if (storageOk) say("bad", "Data tidak bisa disimpan di browser ini (penyimpanan penuh atau diblokir). Cadangkan data atau unduh laporan sebelum menutup halaman."); storageOk = false; }
     showSaved();
+    cekPengingat();
     if (typeof srvSchedule === "function") srvSchedule();
   }
   function hms(d) { return pad(d.getHours()) + ":" + pad(d.getMinutes()) + ":" + pad(d.getSeconds()); }
@@ -448,7 +459,7 @@ input, select, textarea { background: var(--panel); border: 1px solid var(--line
   function findElsewhere(r) {
     for (var k in state.days) {
       if (k === cur) continue;
-      if (state.days[k].items.some(function (it) { return it.r === r; })) return k;
+      if (state.days[k].items.some(function (it) { return it.r === r && !it.s; })) return k;
     }
     return null;
   }
@@ -460,20 +471,35 @@ input, select, textarea { background: var(--panel); border: 1px solid var(--line
     if (bad) return { r: r, bad: bad };
     var dup = d.items.find(function (it) { return it.r === r; });
     if (dup) return { r: r, dup: dup };
+    // Satu resi hanya boleh dipakai sekali, di tanggal mana pun
+    var used = findElsewhere(r);
+    if (used) return { r: r, used: used };
     var forced = $("kurirPilih").value;
     var c = forced === "AUTO" ? detect(r) : forced;
     d.items.push({ r: r, c: c, t: Date.now() });
     lastAdded = r;
-    return { r: r, c: c, other: findElsewhere(r) };
+    return { r: r, c: c };
   }
   function submit(lines) {
-    var added = 0, dups = [], bads = [], last = null, other = null;
+    if (wajibCadangan()) { beep(false); say("bad", "<b>Input dikunci.</b> Cadangkan data ke file dulu lewat tombol <b>Cadangkan sekarang</b> di bagian atas, baru bisa menambah resi."); cekPengingat(); return; }
+    var added = 0, dups = [], bads = [], used = [], last = null;
     lines.forEach(function (l) {
       var res = add(l); if (!res) return;
-      if (res.bad) bads.push(res); else if (res.dup) dups.push(res.r); else { added++; last = res; if (res.other) other = res; }
+      if (res.bad) bads.push(res); else if (res.dup) dups.push(res.r); else if (res.used) used.push(res); else { added++; last = res; }
     });
     if (added) save();
     render();
+    if (used.length && !added && !bads.length && !dups.length && used.length === 1) {
+      beep(false);
+      say("bad", "<b>" + esc(used[0].r) + "</b> DITOLAK: resi ini sudah dipakai tanggal " + esc(longDate(used[0].used)) + ". Tidak disimpan.");
+      return;
+    }
+    if (used.length) {
+      beep(false);
+      say("bad", added + " resi ditambahkan" + (dups.length ? ", " + dups.length + " dobel dilewati" : "") + (bads.length ? ", " + bads.length + " SALAH jumlah karakter" : "") + ". " + used.length + " resi DITOLAK karena sudah dipakai di tanggal lain: <b>" +
+        used.slice(0, 5).map(function (x) { return esc(x.r) + " (" + esc(x.used) + ")"; }).join(", ") + (used.length > 5 ? ", …" : "") + "</b>");
+      return;
+    }
     if (bads.length && !added && !dups.length && bads.length === 1) {
       var b = bads[0].bad;
       beep(false);
@@ -488,8 +514,7 @@ input, select, textarea { background: var(--panel); border: 1px solid var(--line
     }
     if (lines.length === 1 && last) {
       var c = BY_ID[last.c];
-      if (other) { beep(false); say("warn", "<b>" + esc(last.r) + "</b> masuk ke " + esc(c.name) + ", tapi resi ini sudah pernah discan tanggal " + esc(longDate(other.other)) + "."); }
-      else if (last.c === "LAIN") { beep(false); say("warn", "<b>" + esc(last.r) + "</b> tidak dikenali, masuk ke Lainnya. Pindahkan ke kurir yang benar lewat pilihan di daftarnya."); }
+      if (last.c === "LAIN") { beep(false); say("warn", "<b>" + esc(last.r) + "</b> tidak dikenali, masuk ke Lainnya. Pindahkan ke kurir yang benar lewat pilihan di daftarnya."); }
       else { beep(true); say("ok", "<b>" + esc(last.r) + "</b> → " + esc(c.name) + " (" + counts(day())[last.c] + ")"); }
     } else if (dups.length && !added) {
       beep(false); say("bad", "<b>" + esc(dups[0]) + "</b> sudah discan hari ini. Tidak ditambahkan lagi.");
@@ -826,18 +851,32 @@ input, select, textarea { background: var(--panel); border: 1px solid var(--line
       cekPengingat();
     });
   };
-  // Pengingat cadangan mingguan: tiap Sabtu (atau kalau Sabtu terlewat, sampai cadangan berikutnya dibuat)
+  // Cadangan file bulanan (per komputer): pengingat di hari terakhir tiap bulan. Kalau komputer ini belum pernah
+  // membuat cadangan, atau cadangan akhir bulan lalu terlewat, input resi dikunci sampai cadangan dibuat.
   var BACKUP_KEY = "lph.cadangan.terakhir", TUNDA_KEY = "lph.cadangan.tunda";
+  function akhirBulan(d) { return iso(new Date(d.getFullYear(), d.getMonth() + 1, 0)); }
+  function cadanganTerakhir() { try { return localStorage.getItem(BACKUP_KEY) || ""; } catch (e) { return ""; } }
+  function adaDataNyata() { return Object.keys(state.days).some(function (k) { var d = state.days[k]; return d.items.some(function (it) { return !it.s; }) || (!d.sample && hasData(d)); }); }
+  function wajibCadangan() {
+    if (!adaDataNyata()) return false;
+    var now = new Date(), last = cadanganTerakhir();
+    var batas = akhirBulan(new Date(now.getFullYear(), now.getMonth() - 1, 1));
+    return !last || last < batas;
+  }
   function cekPengingat() {
-    var hari = iso(new Date()), last = "", tunda = "";
-    try { last = localStorage.getItem(BACKUP_KEY) || ""; tunda = localStorage.getItem(TUNDA_KEY) || ""; } catch (e) {}
-    var ada = Object.keys(state.days).some(function (k) { return !state.days[k].sample && hasData(state.days[k]); });
-    var umur = last ? Math.round((parseIso(hari) - parseIso(last)) / 864e5) : 99;
-    var sabtu = new Date().getDay() === 6;
-    var perlu = ada && tunda !== hari && last !== hari && (sabtu || umur > 7);
-    $("backupBanner").hidden = !perlu;
-    if (perlu) $("backupBannerText").innerHTML = (sabtu ? "<b>Hari Sabtu: waktunya cadangan mingguan.</b> " : last ? "<b>Cadangan mingguan terlewat.</b> " : "<b>Belum ada cadangan dari komputer ini.</b> ") +
-      (last ? "Cadangan terakhir dari komputer ini: " + esc(longDate(last)) + ". " : "") + "Unduh file cadangan (.json), lalu simpan di folder SynologyDrive.";
+    var now = new Date(), hari = iso(now), last = cadanganTerakhir(), tunda = "";
+    try { tunda = localStorage.getItem(TUNDA_KEY) || ""; } catch (e) {}
+    var wajib = wajibCadangan();
+    var ingat = !wajib && adaDataNyata() && hari === akhirBulan(now) && last !== hari && tunda !== hari;
+    $("backupBanner").hidden = !(wajib || ingat);
+    $("backupBanner").classList.toggle("wajib", wajib);
+    $("backupLater").hidden = wajib;
+    if (wajib) $("backupBannerText").innerHTML = "<b>Input dikunci: cadangkan data dulu.</b> " +
+      (last ? "Cadangan akhir bulan terlewat (terakhir dari komputer ini: " + esc(longDate(last)) + "). " : "Komputer ini belum pernah membuat file cadangan. ") +
+      "Klik Cadangkan sekarang, simpan filenya di folder SynologyDrive, lalu resi bisa diinput lagi.";
+    else if (ingat) $("backupBannerText").innerHTML = "<b>Akhir bulan: waktunya cadangan bulanan.</b> Unduh file cadangan (.json), lalu simpan di folder SynologyDrive. Kalau terlewat, besok input resi dikunci sampai cadangan dibuat.";
+    $("resi").disabled = wajib; $("camBtn").disabled = wajib; $("photoBtn").disabled = wajib;
+    $("resi").placeholder = wajib ? "Cadangkan data dulu (lihat kotak di atas)" : "Scan atau ketik resi, lalu Enter";
   }
   $("backupNow").onclick = function () { $("backupBtn").click(); };
   $("backupLater").onclick = function () { try { localStorage.setItem(TUNDA_KEY, iso(new Date())); } catch (e) {} $("backupBanner").hidden = true; };
@@ -1146,7 +1185,7 @@ input, select, textarea { background: var(--panel); border: 1px solid var(--line
   }
   function srvAuthFail(j) {
     srv.ok = false; pin = ""; try { localStorage.removeItem(PIN_KEY); } catch (e) {}
-    $("srvBackups").hidden = true; $("srvList").hidden = true;
+    $("srvBackups").hidden = true; $("srvList").hidden = true; $("pinChangeBtn").hidden = true; $("pinChange").hidden = true;
     srvBox(j.status === 429 ? esc(j.error) : "PIN salah. Masukkan PIN penyimpanan server.", "Masuk", true);
     showSaved();
   }
@@ -1162,7 +1201,7 @@ input, select, textarea { background: var(--panel); border: 1px solid var(--line
     Object.keys(days).forEach(function (k) { if (gabung(k, days[k]) && k === cur) ubahCur = true; });
     simpanBase(); srv.err = ""; srv.lastOk = new Date();
     if (ubahCur || $("sampleBanner").hidden === !!day().sample) render();
-    showSaved();
+    showSaved(); cekPengingat();
   }
   var pushTimer = null;
   function srvSchedule() {
@@ -1197,7 +1236,7 @@ input, select, textarea { background: var(--panel); border: 1px solid var(--line
     }).then(function () { if (belumTerkirim().length) return srvPush(); });
   }
   function srvLogin() {
-    srv.ok = true; srvBox(""); $("srvBackups").hidden = false; showSaved();
+    srv.ok = true; srvBox(""); $("srvBackups").hidden = false; $("pinChangeBtn").hidden = false; showSaved();
     return srvPull();
   }
   $("pinBtn").onclick = function () {
@@ -1214,6 +1253,28 @@ input, select, textarea { background: var(--panel); border: 1px solid var(--line
         return srvLogin();
       });
     }).catch(function () { srvBox("Server tidak bisa dihubungi. Coba lagi.", $("pinBtn").textContent, true); });
+  };
+  $("pinChangeBtn").onclick = function () {
+    var box = $("pinChange"); box.hidden = !box.hidden;
+    ["pinOld", "pinNew", "pinNew2"].forEach(function (id) { $(id).value = ""; }); $("pinChangeErr").textContent = "";
+    if (!box.hidden) $("pinOld").focus();
+  };
+  $("pinChangeCancel").onclick = function () { $("pinChange").hidden = true; };
+  $("pinChangeSave").onclick = function () {
+    var lama = $("pinOld").value.trim(), baru = $("pinNew").value.trim(), ulang = $("pinNew2").value.trim(), err = $("pinChangeErr");
+    if (!lama) { err.textContent = "Isi PIN lama."; return; }
+    if (baru.length < 4) { err.textContent = "PIN baru minimal 4 karakter."; return; }
+    if (baru !== ulang) { err.textContent = "Ulangi PIN baru tidak sama."; return; }
+    if (baru === lama) { err.textContent = "PIN baru sama dengan PIN lama."; return; }
+    $("pinChangeSave").disabled = true;
+    fetch("api.php?a=gantipin", { method: "POST", headers: { "X-PIN": lama, "Content-Type": "application/json" }, body: JSON.stringify({ baru: baru }), cache: "no-store" }).then(function (r) {
+      return r.json().catch(function () { return {}; }).then(function (j) { j.status = r.status; return j; });
+    }).then(function (j) {
+      $("pinChangeSave").disabled = false;
+      if (!j.ok) { err.textContent = j.status === 401 ? "PIN lama salah. PIN tidak diganti." : (j.error || "PIN tidak bisa diganti."); return; }
+      pin = baru; try { localStorage.setItem(PIN_KEY, pin); } catch (e) {}
+      $("pinChange").hidden = true; toast("PIN berhasil diganti"); say("ok", "PIN server sudah diganti. Gunakan PIN baru di komputer dan HP lain.");
+    }, function () { $("pinChangeSave").disabled = false; err.textContent = "Server tidak bisa dihubungi. PIN tidak diganti."; });
   };
   $("pinInput").addEventListener("keydown", function (e) { if (e.key === "Enter") { e.preventDefault(); $("pinBtn").click(); } });
   $("srvBackups").onclick = function () {
