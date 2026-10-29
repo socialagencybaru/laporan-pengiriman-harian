@@ -29,6 +29,7 @@
   --chip: #e6ebf0;
   --c-spx: #ee4d2d; --c-jnt: #d6001c; --c-pos: #f08c00; --c-idx: #c2185b;
   --c-jne: #1565c0; --c-jntc: #7b1f2e; --c-wahana: #2e7d32; --c-instan: #00897b; --c-lain: #6b7280;
+  --c-sentral: #8d6e63; --c-indah: #5e35b1; --c-x1: #00838f; --c-x2: #6d4c41; --c-x3: #ad1457; --c-x4: #455a64;
   --f-display: "Barlow Condensed", "Arial Narrow", sans-serif;
   --f-body: "Barlow", "Segoe UI", Roboto, sans-serif;
   --f-mono: "JetBrains Mono", ui-monospace, Consolas, monospace;
@@ -181,6 +182,10 @@ input, select, textarea { background: var(--panel); border: 1px solid var(--line
           <label for="kurirPilih" class="hint">Kurir</label>
           <select id="kurirPilih"></select>
         </div>
+        <div class="row" id="kurirBaruRow" hidden>
+          <input id="kurirBaru" maxlength="30" placeholder="Nama kurir, misal: Lion Parcel" style="flex:1;min-width:0">
+          <button id="kurirBaruBtn" class="primary">Pakai</button>
+        </div>
         <div class="msg" id="msg" role="status" aria-live="polite">Kurir terdeteksi otomatis dari pola nomor resi. Di HP, tekan "Scan pakai kamera" lalu arahkan ke barcode resi.</div>
       </section>
 
@@ -275,10 +280,28 @@ input, select, textarea { background: var(--panel); border: 1px solid var(--line
     { id: "JNTC", name: "J&T Cargo", sheet: "JNT CARGO", color: "--c-jntc" },
     { id: "WAHANA", name: "Wahana", sheet: "WAHANA", color: "--c-wahana" },
     { id: "INSTAN", name: "Instan / Sameday", sheet: "INSTAN/SAMEDAY", color: "--c-instan" },
-    { id: "LAIN", name: "Lainnya", sheet: "LAINNYA", color: "--c-lain" }
+    { id: "SENTRAL", name: "Sentral Cargo", sheet: "SENTRAL CARGO", color: "--c-sentral", opsional: true, manual: true, pendek: "Sentral" },
+    { id: "INDAH", name: "Indah Kargo", sheet: "INDAH KARGO", color: "--c-indah", opsional: true, manual: true, pendek: "Indah" },
+    { id: "LAIN", name: "Lainnya", sheet: "LAINNYA", color: "--c-lain", opsional: true, pendek: "Lain" }
   ];
   var BY_ID = {};
   COURIERS.forEach(function (c) { BY_ID[c.id] = c; });
+  // Kurir yang namanya diketik manual disimpan dengan kode "X:NAMA". Kurir ini (dan kode lain yang tidak
+  // dikenal) didaftarkan otomatis supaya tampil, dihitung, dan ikut di PDF/Excel.
+  var EXTRA_KEY = "lph.kurir.extra";
+  function daftarkanKurir(id) {
+    if (!id || BY_ID[id]) return BY_ID[id];
+    var name = id.indexOf("X:") === 0 ? id.slice(2).toLowerCase().replace(/(^|\s)\S/g, function (h) { return h.toUpperCase(); }) : id;
+    var n = COURIERS.filter(function (k) { return k.custom; }).length;
+    var k = { id: id, name: name, sheet: name.toUpperCase(), color: "--c-x" + (n % 4 + 1), opsional: true, manual: true, custom: true, pendek: name.length > 9 ? name.slice(0, 8) + "…" : name };
+    COURIERS.splice(COURIERS.length - 1, 0, k); BY_ID[id] = k;
+    return k;
+  }
+  function daftarkanSemuaKurir() {
+    var baru = false;
+    Object.keys(state.days).forEach(function (d) { (state.days[d].items || []).forEach(function (it) { if (!BY_ID[it.c]) { daftarkanKurir(it.c); baru = true; } }); });
+    if (baru && typeof isiPilihanKurir === "function") isiPilihanKurir();
+  }
 
   // Pola resi diambil dari data Pengiriman Harian 2026
   var RULES = [
@@ -406,6 +429,8 @@ input, select, textarea { background: var(--panel); border: 1px solid var(--line
   function sheetName(s) { var d = parseIso(s); return d.getDate() + " " + BLN3[d.getMonth()]; }
 
   var $ = function (id) { return document.getElementById(id); };
+  try { (JSON.parse(localStorage.getItem(EXTRA_KEY) || "[]") || []).forEach(daftarkanKurir); } catch (e) {}
+  daftarkanSemuaKurir();
   var cur = iso(new Date());
   var lastAdded = null;
 
@@ -461,7 +486,8 @@ input, select, textarea { background: var(--panel); border: 1px solid var(--line
     var r = norm(raw);
     if (!r) return null;
     var d = day();
-    var bad = lengthError(r);
+    var paksa = $("kurirPilih").value;
+    var bad = BY_ID[paksa] && BY_ID[paksa].manual ? null : lengthError(r);
     if (bad) return { r: r, bad: bad };
     var dup = d.items.find(function (it) { return it.r === r; });
     if (dup) return { r: r, dup: dup };
@@ -542,13 +568,13 @@ input, select, textarea { background: var(--panel); border: 1px solid var(--line
     var c = counts(d), total = d.items.length;
     var sh = "";
     COURIERS.forEach(function (k) {
-      if (k.id === "LAIN" && !c.LAIN) return;
+      if (k.opsional && !c[k.id]) return;
       sh += '<div class="r' + (c[k.id] ? "" : " zero") + '"><span class="dot" style="--cc:var(' + k.color + ')"></span>' + esc(k.name) + '<span class="n">' + c[k.id] + ' <span class="pcs">PCS</span></span></div>';
     });
     sh += '<div class="total">Total<span class="n">' + total + '</span><span class="pcs">PCS</span></div>';
     $("sum").innerHTML = sh;
 
-    var opts = COURIERS.map(function (k) { return '<option value="' + k.id + '">' + esc(k.id === "INSTAN" ? "Instan" : k.id === "LAIN" ? "Lain" : k.id) + "</option>"; }).join("");
+    var opts = COURIERS.map(function (k) { return '<option value="' + esc(k.id) + '">' + esc(k.pendek || (k.id === "INSTAN" ? "Instan" : k.id)) + "</option>"; }).join("");
     var gh = "";
     COURIERS.forEach(function (k) {
       var list = d.items.filter(function (it) { return it.c === k.id; });
@@ -557,7 +583,7 @@ input, select, textarea { background: var(--panel); border: 1px solid var(--line
       list.forEach(function (it, i) {
         var le = lengthError(it.r), cls = (it.r === lastAdded ? "flash" : "") + (le ? " badlen" : "");
         gh += '<li' + (cls ? ' class="' + cls.trim() + '"' : "") + '><span class="no">' + (i + 1) + '</span><span class="rs"' + (le ? ' title="' + esc(le.need + ", terbaca " + le.got) + '"' : "") + '>' + esc(it.r) + (le ? '<span class="flag">SALAH ' + le.got + ' kar.</span>' : "") + '</span>' +
-          '<select data-move="' + esc(it.r) + '" aria-label="Pindah kurir">' + opts.replace('value="' + k.id + '"', 'value="' + k.id + '" selected') + '</select>' +
+          '<select data-move="' + esc(it.r) + '" aria-label="Pindah kurir">' + opts.replace('value="' + esc(k.id) + '"', 'value="' + esc(k.id) + '" selected') + '</select>' +
           '<button data-del="' + esc(it.r) + '" aria-label="Hapus ' + esc(it.r) + '">×</button></li>';
       });
       gh += "</ol></section>";
@@ -632,7 +658,7 @@ input, select, textarea { background: var(--panel); border: 1px solid var(--line
       var v = $("clearPin").value.trim();
       if (!v) { $("clearErr").textContent = "PIN wajib diisi."; $("clearPin").focus(); return; }
       $("yesClear").disabled = true;
-      fetch("api.php?a=cek", { headers: { "X-PIN": v }, cache: "no-store" }).then(function (r) {
+      fetch(API + "?a=cek", { headers: { "X-PIN": v }, cache: "no-store" }).then(function (r) {
         return r.json().catch(function () { return {}; }).then(function (j) { j.status = r.status; return j; });
       }).then(function (j) {
         if (j.ok) { kosongkan(); return; }
@@ -646,7 +672,7 @@ input, select, textarea { background: var(--panel); border: 1px solid var(--line
   // Tata letak sama dengan file "Pengiriman Harian": tiap kurir dua kolom (No, Resi) + ringkasan di kanan
   function sheetRows(s) {
     var d = day(s), c = counts(d);
-    var used = COURIERS.filter(function (k) { return k.id !== "LAIN" || c.LAIN; });
+    var used = COURIERS.filter(function (k) { return !k.opsional || c[k.id]; });
     var rows = [[], []], max = 0;
     used.forEach(function (k, i) {
       rows[0][i * 3] = k.sheet; rows[1][i * 3] = "No"; rows[1][i * 3 + 1] = "Resi";
@@ -726,7 +752,7 @@ input, select, textarea { background: var(--panel); border: 1px solid var(--line
     var doc = pdfLib(); if (!doc) return;
     var d = day(), c = counts(d);
     pdfHead(doc, "Laporan Pengiriman SAB Online", "Laporan harian · " + longDate(cur));
-    var used = COURIERS.filter(function (k) { return c[k.id] || k.id !== "LAIN"; });
+    var used = COURIERS.filter(function (k) { return c[k.id] || !k.opsional; });
     doc.autoTable(ext({
       startY: 32, tableWidth: 90,
       head: [["Kurir", "Jumlah (pcs)"]],
@@ -774,7 +800,7 @@ input, select, textarea { background: var(--panel); border: 1px solid var(--line
     var keys = Object.keys(state.days).filter(function (k) { return k.slice(0, 7) === ym && hasData(state.days[k]); }).sort();
     if (!keys.length) { say("warn", "Belum ada data bulan " + BULAN[dt.getMonth()] + "."); return; }
     doc = new window.jspdf.jsPDF({ unit: "mm", format: "a4", orientation: "landscape" });
-    var used = COURIERS.filter(function (k) { return k.id !== "LAIN" || keys.some(function (x) { return counts(state.days[x]).LAIN; }); });
+    var used = COURIERS.filter(function (k) { return !k.opsional || keys.some(function (x) { return counts(state.days[x])[k.id]; }); });
     var tot = {}; used.forEach(function (k) { tot[k.id] = 0; }); var grand = 0;
     var body = keys.map(function (x) {
       var d = state.days[x], c = counts(d); grand += d.items.length;
@@ -973,12 +999,13 @@ input, select, textarea { background: var(--panel); border: 1px solid var(--line
       (src.items || []).forEach(function (it) {
         var r = norm(it && it.r); if (!r || have[r]) return;
         have[r] = true; nItems++;
-        dst.items.push({ r: r, c: BY_ID[it.c] ? it.c : detect(r), t: +it.t || Date.now() });
+        dst.items.push({ r: r, c: it.c && (BY_ID[it.c] || String(it.c).indexOf("X:") === 0) ? it.c : detect(r), t: +it.t || Date.now() });
       });
       ["pesanan", "pending", "po", "catatan"].forEach(function (fl) { if (!dst[fl] && src[fl]) dst[fl] = String(src[fl]); });
       nDays++;
     });
     if (!nDays) { say("bad", "Tidak ada data pengiriman yang bisa dibaca dari " + esc(what) + "."); return; }
+    daftarkanSemuaKurir();
     save(touched);
     if (touched.indexOf(cur) < 0) cur = touched[touched.length - 1];
     lastAdded = null; render();
@@ -1078,8 +1105,31 @@ input, select, textarea { background: var(--panel); border: 1px solid var(--line
   });
 
   // isi pilihan kurir
-  $("kurirPilih").innerHTML = '<option value="AUTO">Otomatis (deteksi dari resi)</option>' +
-    COURIERS.map(function (k) { return '<option value="' + k.id + '">Paksa: ' + esc(k.name) + "</option>"; }).join("");
+  function isiPilihanKurir() {
+    var v = $("kurirPilih").value;
+    $("kurirPilih").innerHTML = '<option value="AUTO">Otomatis (deteksi dari resi)</option>' +
+      COURIERS.map(function (k) { return '<option value="' + esc(k.id) + '">Paksa: ' + esc(k.name) + "</option>"; }).join("") +
+      '<option value="__BARU__">+ Kurir lain (ketik nama)…</option>';
+    if (v && v !== "__BARU__" && (v === "AUTO" || BY_ID[v])) $("kurirPilih").value = v;
+  }
+  isiPilihanKurir();
+  $("kurirPilih").addEventListener("change", function () {
+    var baru = this.value === "__BARU__";
+    $("kurirBaruRow").hidden = !baru;
+    if (baru) { $("kurirBaru").value = ""; $("kurirBaru").focus(); } else $("resi").focus();
+  });
+  function tambahKurirManual() {
+    var nama = $("kurirBaru").value.replace(/\s+/g, " ").trim();
+    if (nama.length < 2) { say("warn", "Ketik nama kurir dulu, minimal 2 huruf."); $("kurirBaru").focus(); return; }
+    var ada = COURIERS.find(function (k) { return k.name.toLowerCase() === nama.toLowerCase(); });
+    var k = ada || daftarkanKurir("X:" + nama.toUpperCase().slice(0, 30));
+    if (!ada) { try { var ex = JSON.parse(localStorage.getItem(EXTRA_KEY) || "[]"); if (ex.indexOf(k.id) < 0) ex.push(k.id); localStorage.setItem(EXTRA_KEY, JSON.stringify(ex)); } catch (e) {} }
+    isiPilihanKurir(); $("kurirPilih").value = k.id; $("kurirBaruRow").hidden = true;
+    say("ok", "Kurir <b>" + esc(k.name) + "</b> dipilih. Resi yang discan sekarang masuk ke kurir ini; pilih Otomatis lagi kalau sudah selesai.");
+    render(); $("resi").focus();
+  }
+  $("kurirBaruBtn").onclick = tambahKurirManual;
+  $("kurirBaru").addEventListener("keydown", function (e) { if (e.key === "Enter") { e.preventDefault(); tambahKurirManual(); } if (e.key === "Escape") { $("kurirPilih").value = "AUTO"; $("kurirBaruRow").hidden = true; } });
 
   // Ganti hari otomatis: kalau aplikasi dibiarkan terbuka melewati tengah malam, laporan pindah ke tanggal baru
   var today = iso(new Date());
@@ -1094,6 +1144,8 @@ input, select, textarea { background: var(--panel); border: 1px solid var(--line
   // Beberapa komputer/HP bisa scan bersamaan. Yang dikirim ke server hanya perubahan (resi ditambah,
   // resi dihapus, catatan diubah) dibanding versi server terakhir yang diketahui perangkat ini ("lph.server.base").
   // Server menggabungkan perubahan itu ke datanya, jadi resi dari perangkat lain tidak tertimpa.
+  // Draft tampilan di folder /draft/ memakai api.php dari folder induk (data yang sama)
+  var API = /\/draft\//.test(location.pathname) ? "../api.php" : "api.php";
   var BASE_KEY = "lph.server.base", PIN_KEY = "lph.pin", SINCE_KEY = "lph.server.since", NOTE_F = ["pesanan", "pending", "po", "catatan"];
   var base = {}, pin = "", since = 0;
   try { base = JSON.parse(localStorage.getItem(BASE_KEY) || "{}") || {}; pin = localStorage.getItem(PIN_KEY) || ""; since = +localStorage.getItem(SINCE_KEY) || 0; } catch (e) {}
@@ -1154,7 +1206,7 @@ input, select, textarea { background: var(--panel); border: 1px solid var(--line
     var tm = ctl ? setTimeout(function () { ctl.abort(); }, timeout || 20000) : null;
     var opt = { method: body ? "POST" : "GET", headers: { "X-PIN": pin }, cache: "no-store", signal: ctl ? ctl.signal : undefined };
     if (body) { opt.headers["Content-Type"] = "application/json"; opt.body = JSON.stringify(body); }
-    return fetch("api.php?a=" + a, opt).then(function (r) {
+    return fetch(API + "?a=" + a, opt).then(function (r) {
       if (tm) clearTimeout(tm);
       return r.json().catch(function () { return {}; }).then(function (j) { j.status = r.status; return j; });
     }, function (e) { if (tm) clearTimeout(tm); throw e; });
@@ -1182,6 +1234,7 @@ input, select, textarea { background: var(--panel); border: 1px solid var(--line
     var ubahCur = false;
     Object.keys(days).forEach(function (k) { if (gabung(k, days[k]) && k === cur) ubahCur = true; });
     simpanBase(); srv.err = ""; srv.lastOk = new Date();
+    daftarkanSemuaKurir();
     if (ubahCur || $("sampleBanner").hidden === !!day().sample) render();
     showSaved();
   }
@@ -1249,7 +1302,7 @@ input, select, textarea { background: var(--panel); border: 1px solid var(--line
     if (baru !== ulang) { err.textContent = "Ulangi PIN baru tidak sama."; return; }
     if (baru === lama) { err.textContent = "PIN baru sama dengan PIN lama."; return; }
     $("pinChangeSave").disabled = true;
-    fetch("api.php?a=gantipin", { method: "POST", headers: { "X-PIN": lama, "Content-Type": "application/json" }, body: JSON.stringify({ baru: baru }), cache: "no-store" }).then(function (r) {
+    fetch(API + "?a=gantipin", { method: "POST", headers: { "X-PIN": lama, "Content-Type": "application/json" }, body: JSON.stringify({ baru: baru }), cache: "no-store" }).then(function (r) {
       return r.json().catch(function () { return {}; }).then(function (j) { j.status = r.status; return j; });
     }).then(function (j) {
       $("pinChangeSave").disabled = false;
@@ -1273,7 +1326,7 @@ input, select, textarea { background: var(--panel); border: 1px solid var(--line
   };
   $("srvList").addEventListener("click", function (e) {
     var f = e.target.getAttribute && e.target.getAttribute("data-f"); if (!f) return;
-    fetch("api.php?a=backup&f=" + encodeURIComponent(f), { headers: { "X-PIN": pin }, cache: "no-store" }).then(function (r) {
+    fetch(API + "?a=backup&f=" + encodeURIComponent(f), { headers: { "X-PIN": pin }, cache: "no-store" }).then(function (r) {
       if (!r.ok) throw new Error(r.status); return r.text();
     }).then(function (t) { saveFile(f.replace("cadangan-", "Cadangan Server Pengiriman Harian "), t, "application/json"); })
       .catch(function () { say("bad", "Cadangan tidak bisa diunduh."); });
@@ -1293,7 +1346,7 @@ input, select, textarea { background: var(--panel); border: 1px solid var(--line
   function srvBeacon() {
     if (!srv.on || !srv.ok || !navigator.sendBeacon) return;
     var ops = semuaPerubahan(); if (!Object.keys(ops).length) return;
-    try { navigator.sendBeacon("api.php?a=save", new Blob([JSON.stringify({ pin: pin, ops: ops })], { type: "text/plain" })); } catch (e) {}
+    try { navigator.sendBeacon(API + "?a=save", new Blob([JSON.stringify({ pin: pin, ops: ops })], { type: "text/plain" })); } catch (e) {}
   }
   document.addEventListener("visibilitychange", function () { if (document.visibilityState === "visible") srvPull(); else srvBeacon(); });
   window.addEventListener("pagehide", srvBeacon);

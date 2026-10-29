@@ -87,7 +87,7 @@ function bersihkan($d) {
     $r = teks($it['r'], 60);
     if ($r === '' || isset($ada[$r])) continue;
     $ada[$r] = 1;
-    $items[] = array('r' => $r, 'c' => teks(isset($it['c']) ? $it['c'] : '', 12), 't' => isset($it['t']) ? (int)$it['t'] : 0);
+    $items[] = array('r' => $r, 'c' => teks(isset($it['c']) ? $it['c'] : '', 40), 't' => isset($it['t']) ? (int)$it['t'] : 0);
   }
   $hasil = array('items' => $items);
   foreach (array('pesanan', 'pending', 'po') as $f) $hasil[$f] = teks(isset($d[$f]) ? $d[$f] : '', 40);
@@ -150,7 +150,7 @@ if ($a === 'save') {
     if (isset($op['add']) && is_array($op['add'])) foreach ($op['add'] as $it) {
       if (!is_array($it) || !isset($it['r'])) continue;
       $r = teks($it['r'], 60); if ($r === '') continue;
-      $c = teks(isset($it['c']) ? $it['c'] : '', 12);
+      $c = teks(isset($it['c']) ? $it['c'] : '', 40);
       if (isset($pos[$r])) $d['items'][$pos[$r]]['c'] = $c;
       else { $pos[$r] = count($d['items']); $d['items'][] = array('r' => $r, 'c' => $c, 't' => isset($it['t']) ? (int)$it['t'] : 0); }
     }

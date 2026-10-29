@@ -35,6 +35,7 @@ Buka `index.html` di browser (Chrome atau Edge). Aplikasi ini tidak butuh server
 | POS Indonesia | `SHPE` + 18 karakter, `TTSPOS…` | SHPE261001448DF0017145 |
 | J&T Cargo | 12 angka berawalan `20` atau `57` | 201833058622 |
 | Instan / Sameday | 6 angka tanggal + 8 karakter | 260930DDK8YJNB |
+| Sentral Cargo, Indah Kargo, kurir lain | pilih manual di "Kurir" (atau "+ Kurir lain" untuk mengetik nama) | |
 
 Pola-pola ini diambil dari file Pengiriman Harian Oktober 2026. Untuk mengubahnya, edit daftar `RULES` (pola kurir) dan `LEN_RULES` (jumlah karakter) di `index.html`.
 
