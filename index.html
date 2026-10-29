@@ -161,6 +161,10 @@ input, select, textarea { background: var(--panel); border: 1px solid var(--line
     <span>Ini data <b>contoh</b> supaya terlihat cara kerjanya. Hapus dulu sebelum mulai scan.</span>
     <button id="clearSample" class="primary">Hapus data contoh</button>
   </div>
+  <div class="banner" id="backupBanner" hidden>
+    <span id="backupBannerText"></span>
+    <span class="actions"><button id="backupNow" class="primary">Cadangkan sekarang</button><button id="backupLater">Nanti</button></span>
+  </div>
 
   <div class="grid">
     <div class="col">
@@ -817,8 +821,27 @@ input, select, textarea { background: var(--panel); border: 1px solid var(--line
       if (items.length || (!d.sample && hasData(d))) out.days[k] = { items: items, pesanan: d.pesanan || "", pending: d.pending || "", po: d.po || "", catatan: d.catatan || "" };
     });
     if (!Object.keys(out.days).length) { say("warn", "Belum ada data untuk dicadangkan."); return; }
-    saveFile("Cadangan Pengiriman Harian " + iso(new Date()) + ".json", JSON.stringify(out, null, 1), "application/json");
+    saveFile("Cadangan Pengiriman Harian " + iso(new Date()) + ".json", JSON.stringify(out, null, 1), "application/json").then(function () {
+      try { localStorage.setItem(BACKUP_KEY, iso(new Date())); } catch (e) {}
+      cekPengingat();
+    });
   };
+  // Pengingat cadangan mingguan: tiap Sabtu (atau kalau Sabtu terlewat, sampai cadangan berikutnya dibuat)
+  var BACKUP_KEY = "lph.cadangan.terakhir", TUNDA_KEY = "lph.cadangan.tunda";
+  function cekPengingat() {
+    var hari = iso(new Date()), last = "", tunda = "";
+    try { last = localStorage.getItem(BACKUP_KEY) || ""; tunda = localStorage.getItem(TUNDA_KEY) || ""; } catch (e) {}
+    var ada = Object.keys(state.days).some(function (k) { return !state.days[k].sample && hasData(state.days[k]); });
+    var umur = last ? Math.round((parseIso(hari) - parseIso(last)) / 864e5) : 99;
+    var sabtu = new Date().getDay() === 6;
+    var perlu = ada && tunda !== hari && last !== hari && (sabtu || umur > 7);
+    $("backupBanner").hidden = !perlu;
+    if (perlu) $("backupBannerText").innerHTML = (sabtu ? "<b>Hari Sabtu: waktunya cadangan mingguan.</b> " : last ? "<b>Cadangan mingguan terlewat.</b> " : "<b>Belum ada cadangan dari komputer ini.</b> ") +
+      (last ? "Cadangan terakhir dari komputer ini: " + esc(longDate(last)) + ". " : "") + "Unduh file cadangan (.json), lalu simpan di folder SynologyDrive.";
+  }
+  $("backupNow").onclick = function () { $("backupBtn").click(); };
+  $("backupLater").onclick = function () { try { localStorage.setItem(TUNDA_KEY, iso(new Date())); } catch (e) {} $("backupBanner").hidden = true; };
+  setInterval(cekPengingat, 10 * 60 * 1000);
   $("restoreBtn").onclick = function () { $("restoreFile").value = ""; $("restoreFile").click(); };
   // Buka file: cadangan .json, daftar harian .csv, atau Excel (.xlsx/.xls) berformat "Pengiriman Harian"
   var BULAN_KEY = { JAN: 1, FEB: 2, MAR: 3, APR: 4, MEI: 5, MAY: 5, JUN: 6, JUL: 7, AGU: 8, AGS: 8, AGT: 8, AUG: 8, SEP: 9, OKT: 10, OCT: 10, NOV: 11, NOP: 11, DES: 12, DEC: 12 };
@@ -1248,6 +1271,7 @@ input, select, textarea { background: var(--panel); border: 1px solid var(--line
 
   render();
   showSaved();
+  cekPengingat();
   $("resi").focus();
 })();
 </script>
