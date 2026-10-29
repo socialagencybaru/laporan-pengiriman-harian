@@ -588,12 +588,34 @@ input, select, textarea { background: var(--panel); border: 1px solid var(--line
   };
 
   function resetClear() { $("clearWrap").innerHTML = '<button id="clearDay" class="danger">Kosongkan hari ini</button>'; $("clearDay").onclick = askClear; }
+  // Mengosongkan satu tanggal ikut menghapus data di server dan semua perangkat, jadi dikunci dengan PIN server
   function askClear() {
-    $("clearWrap").innerHTML = '<span class="confirm">Hapus semua resi & catatan ' + esc(longDate(cur)) + '? <button id="yesClear" class="primary">Ya, kosongkan</button><button id="noClear">Batal</button></span>';
+    var kunci = srv.on && srv.pinSet;
+    $("clearWrap").innerHTML = '<span class="confirm">Hapus semua resi & catatan ' + esc(longDate(cur)) + '?' +
+      (kunci ? ' Masukkan PIN: <input type="password" id="clearPin" inputmode="numeric" autocomplete="off" placeholder="PIN" style="width:7em;font:inherit;padding:6px 8px">' : '') +
+      ' <button id="yesClear" class="primary">Ya, kosongkan</button><button id="noClear">Batal</button> <span id="clearErr" class="err" style="color:var(--bad)"></span></span>';
     $("noClear").onclick = resetClear;
+    if (kunci) {
+      $("clearPin").focus();
+      $("clearPin").addEventListener("keydown", function (e) { if (e.key === "Enter") { e.preventDefault(); $("yesClear").click(); } if (e.key === "Escape") resetClear(); });
+    }
     $("yesClear").onclick = function () {
-      var backup = state.days[cur]; delete state.days[cur]; save(); render();
-      toast("Hari ini dikosongkan", function () { state.days[cur] = backup; save(); render(); });
+      var tgl = cur;
+      function kosongkan() {
+        var backup = state.days[tgl]; delete state.days[tgl]; save([tgl]); render(); resetClear();
+        toast(longDate(tgl) + " dikosongkan", function () { state.days[tgl] = backup; save([tgl]); render(); });
+      }
+      if (!kunci) { kosongkan(); return; }
+      var v = $("clearPin").value.trim();
+      if (!v) { $("clearErr").textContent = "PIN wajib diisi."; $("clearPin").focus(); return; }
+      $("yesClear").disabled = true;
+      fetch("api.php?a=cek", { headers: { "X-PIN": v }, cache: "no-store" }).then(function (r) {
+        return r.json().catch(function () { return {}; }).then(function (j) { j.status = r.status; return j; });
+      }).then(function (j) {
+        if (j.ok) { kosongkan(); return; }
+        $("yesClear").disabled = false; $("clearPin").value = ""; $("clearPin").focus();
+        $("clearErr").textContent = j.status === 401 ? "PIN salah. Data tidak dikosongkan." : (j.error || "PIN tidak bisa dicek.");
+      }, function () { $("yesClear").disabled = false; $("clearErr").textContent = "Server tidak bisa dihubungi. Data tidak dikosongkan."; });
     };
   }
 

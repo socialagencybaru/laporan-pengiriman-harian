@@ -96,6 +96,9 @@ function bersihkan($d) {
   return $hasil;
 }
 
+// Cek PIN saja, misalnya sebelum mengosongkan satu tanggal
+if ($a === 'cek') out(200, array('ok' => true));
+
 if ($a === 'load') {
   // since: hanya kirim tanggal yang berubah sejak waktu itu; keys: semua tanggal yang ada (untuk deteksi tanggal yang dihapus)
   $since = isset($_GET['since']) ? (float)$_GET['since'] : 0;
