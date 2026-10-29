@@ -126,6 +126,12 @@ input, select, textarea { background: var(--panel); border: 1px solid var(--line
 .cam #camLast { font-family: var(--f-mono); font-size: .85rem; overflow-wrap: anywhere; min-width: 0; }
 .saved { font-size: .85rem; color: var(--ok); }
 .saved.bad { color: var(--bad); }
+.srvbox { margin: 10px 0; padding: 10px 12px; border: 1px solid var(--line, #d0d7de); border-radius: 10px; }
+.srvbox p { margin: 0 0 8px; font-size: .9rem; }
+.srvbox input { font: inherit; padding: 8px 10px; width: 9em; margin-right: 6px; border: 1px solid var(--line, #d0d7de); border-radius: 8px; }
+.srvbox .err { color: var(--bad); }
+.srvlist { list-style: none; padding: 0; margin: 8px 0 0; max-height: 220px; overflow: auto; font-size: .9rem; }
+.srvlist li { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 4px 0; border-bottom: 1px dashed var(--line, #d0d7de); }
 .toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(16px + env(safe-area-inset-bottom, 0px)); background: var(--fg); color: var(--bg); padding: 10px 14px; border-radius: 8px; display: flex; gap: 12px; align-items: center; z-index: 20; max-width: calc(100% - 32px); }
 .toast button { background: transparent; color: inherit; border-color: currentColor; padding: 3px 10px; }
 .confirm { display: inline-flex; gap: 6px; align-items: center; }
@@ -205,13 +211,20 @@ input, select, textarea { background: var(--panel); border: 1px solid var(--line
       <section class="panel">
         <h2>Simpan data pengiriman</h2>
         <div class="saved" id="savedInfo"></div>
+        <div class="srvbox" id="srvBox" hidden>
+          <p id="srvText"></p>
+          <input type="password" id="pinInput" inputmode="numeric" autocomplete="current-password" placeholder="PIN">
+          <button id="pinBtn" class="primary">Masuk</button>
+        </div>
         <div class="actions">
           <button id="saveNow" class="primary">Simpan sekarang</button>
+          <button id="srvBackups" hidden>Cadangan di server</button>
           <button id="csvDay">Simpan daftar hari ini (.csv)</button>
           <button id="backupBtn">Cadangkan semua data (.json)</button>
           <button id="restoreBtn">Buka file laporan</button>
           <input type="file" id="restoreFile" accept=".json,.csv,.xlsx,.xls,application/json,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" hidden>
         </div>
+        <ul class="srvlist" id="srvList" hidden></ul>
         <div class="hint">Data tersimpan otomatis di browser ini setiap ada perubahan dan setiap 5 menit. Saat tab ditutup, data disimpan dulu dan muncul peringatan. Cadangkan rutin supaya aman. "Buka file laporan" bisa membuka file cadangan (.json), daftar harian (.csv), atau Excel "Pengiriman Harian" (.xlsx), lalu datanya masuk ke riwayat.</div>
       </section>
 
@@ -321,6 +334,8 @@ input, select, textarea { background: var(--panel); border: 1px solid var(--line
     }
   } catch (e) {}
   var storageOk = true, savedAt = null;
+  // Status penyimpanan server (aktif hanya kalau api.php ada di folder yang sama, misalnya di Hostinger)
+  var srv = { on: false, ok: false, err: "", lastOk: null, pinSet: false };
   function writeDay(k) {
     var d = state.days[k];
     if (d && (d.items.length || d.catatan || d.pesanan || d.pending || d.po || d.sample)) localStorage.setItem(DAY_KEY + k, JSON.stringify(d));
@@ -331,12 +346,22 @@ input, select, textarea { background: var(--panel); border: 1px solid var(--line
     try { (keys || [cur]).forEach(writeDay); storageOk = true; savedAt = new Date(); }
     catch (e) { if (storageOk) say("bad", "Data tidak bisa disimpan di browser ini (penyimpanan penuh atau diblokir). Cadangkan data atau unduh laporan sebelum menutup halaman."); storageOk = false; }
     showSaved();
+    if (typeof srvSchedule === "function") srvSchedule();
   }
+  function hms(d) { return pad(d.getHours()) + ":" + pad(d.getMinutes()) + ":" + pad(d.getSeconds()); }
   function showSaved() {
     var el = document.getElementById("savedInfo"); if (!el) return;
+    if (srv.on) {
+      el.className = "saved" + (srv.err || !srv.ok ? " bad" : "");
+      el.textContent = !srv.ok ? "Data belum tersambung ke server. Sementara tersimpan di browser ini."
+        : srv.err ? "⚠ Belum terkirim ke server (" + srv.err + "). Data aman di browser ini dan dikirim ulang otomatis."
+        : srv.lastOk ? "✓ Tersimpan di server Hostinger pukul " + hms(srv.lastOk) + " · otomatis tiap ada perubahan dan tiap 5 menit"
+        : "Menyambungkan ke server…";
+      return;
+    }
     el.className = "saved" + (storageOk ? "" : " bad");
     el.textContent = !storageOk ? "Gagal menyimpan di browser. Segera cadangkan data ke file."
-      : savedAt ? "✓ Tersimpan pukul " + pad(savedAt.getHours()) + ":" + pad(savedAt.getMinutes()) + ":" + pad(savedAt.getSeconds()) + " · simpan otomatis tiap ada perubahan dan tiap 5 menit"
+      : savedAt ? "✓ Tersimpan pukul " + hms(savedAt) + " · simpan otomatis tiap ada perubahan dan tiap 5 menit"
       : "✓ Data tersimpan otomatis per tanggal di browser ini, juga tiap 5 menit";
   }
 
@@ -740,8 +765,14 @@ input, select, textarea { background: var(--panel); border: 1px solid var(--line
     if (!storageOk) return;
     var ok = false;
     try { var back = JSON.parse(localStorage.getItem(DAY_KEY + cur) || "null"); ok = back ? back.items.length === day().items.length : !hasData(day()); } catch (e) {}
-    if (ok) { toast("Tersimpan: " + longDate(cur) + " · " + day().items.length + " resi"); say("ok", "Data " + esc(longDate(cur)) + " tersimpan (" + day().items.length + " resi, " + keys.length + " tanggal di riwayat)."); }
-    else say("bad", "Penyimpanan tidak bisa dipastikan. Cadangkan data ke file sekarang.");
+    if (!ok) { say("bad", "Penyimpanan tidak bisa dipastikan. Cadangkan data ke file sekarang."); return; }
+    var info = day().items.length + " resi, " + keys.length + " tanggal di riwayat";
+    if (!srv.on) { toast("Tersimpan: " + longDate(cur) + " · " + day().items.length + " resi"); say("ok", "Data " + esc(longDate(cur)) + " tersimpan di browser (" + info + ")."); return; }
+    if (!srv.ok) { say("warn", "Data tersimpan di browser (" + info + "), tapi belum ke server. Masukkan PIN dulu."); return; }
+    srvPush(true).then(function () {
+      if (srv.err) say("warn", "Data tersimpan di browser (" + info + "), tapi gagal dikirim ke server: " + esc(srv.err) + ". Dicoba lagi otomatis.");
+      else { toast("Tersimpan di server: " + longDate(cur)); say("ok", "Data " + esc(longDate(cur)) + " tersimpan di server Hostinger (" + info + ")."); }
+    });
   };
   $("csvDay").onclick = function () {
     var d = day();
@@ -993,12 +1024,174 @@ input, select, textarea { background: var(--panel); border: 1px solid var(--line
     if (cur === prev) { go(now); toast("Hari baru: laporan " + longDate(now) + " dimulai. Data " + longDate(prev) + " sudah tersimpan."); }
   }, 30000);
 
-  // Simpan otomatis tiap 5 menit (semua tanggal), sebagai pengaman tambahan
-  setInterval(function () { save(Object.keys(state.days)); }, 5 * 60 * 1000);
+  // ---------- penyimpanan di server (api.php) ----------
+  // Tiap tanggal dibandingkan dengan versi terakhir yang sudah dikirim ke server (sidik "lph.server.synced").
+  // Tanggal yang berubah dikirim otomatis; saat dibuka, data server dipakai kecuali ada perubahan lokal yang belum terkirim.
+  var SYNC_KEY = "lph.server.synced", PIN_KEY = "lph.pin";
+  var synced = {}, pin = "";
+  try { synced = JSON.parse(localStorage.getItem(SYNC_KEY) || "{}") || {}; pin = localStorage.getItem(PIN_KEY) || ""; } catch (e) {}
+  function sidik(str) { var h = 5381; for (var i = 0; i < str.length; i++) h = ((h << 5) + h + str.charCodeAt(i)) | 0; return (h >>> 0).toString(36) + "." + str.length; }
+  function bersih(d) {
+    if (!d || !d.items) return null;
+    var items = d.items.filter(function (it) { return !it.s; }).map(function (it) { return { r: it.r, c: it.c, t: it.t }; });
+    var o = d.sample ? { items: items, pesanan: "", pending: "", po: "", catatan: "" } : { items: items, pesanan: d.pesanan || "", pending: d.pending || "", po: d.po || "", catatan: d.catatan || "" };
+    return hasData(o) ? o : null;
+  }
+  function sidikHari(d) { return sidik(JSON.stringify(bersih(d))); }
+  var KOSONG = sidik("null");
+  function belumTerkirim() {
+    var keys = {}; Object.keys(state.days).forEach(function (k) { keys[k] = 1; }); Object.keys(synced).forEach(function (k) { keys[k] = 1; });
+    return Object.keys(keys).filter(function (k) { return sidikHari(state.days[k]) !== (synced[k] || KOSONG); });
+  }
+  function simpanSidik() { try { localStorage.setItem(SYNC_KEY, JSON.stringify(synced)); } catch (e) {} }
+  function api(a, body, timeout) {
+    var ctl = window.AbortController ? new AbortController() : null;
+    var tm = ctl ? setTimeout(function () { ctl.abort(); }, timeout || 20000) : null;
+    var opt = { method: body ? "POST" : "GET", headers: { "X-PIN": pin }, cache: "no-store", signal: ctl ? ctl.signal : undefined };
+    if (body) { opt.headers["Content-Type"] = "application/json"; opt.body = JSON.stringify(body); }
+    return fetch("api.php?a=" + a, opt).then(function (r) {
+      if (tm) clearTimeout(tm);
+      return r.json().catch(function () { return {}; }).then(function (j) { j.status = r.status; return j; });
+    }, function (e) { if (tm) clearTimeout(tm); throw e; });
+  }
+  function srvBox(text, btn, isErr) {
+    $("srvBox").hidden = !text;
+    if (!text) return;
+    $("srvText").innerHTML = text; $("srvText").className = isErr ? "err" : "";
+    $("pinBtn").textContent = btn; $("pinInput").value = "";
+  }
+  function srvAuthFail(j) {
+    srv.ok = false; pin = ""; try { localStorage.removeItem(PIN_KEY); } catch (e) {}
+    $("srvBackups").hidden = true; $("srvList").hidden = true;
+    srvBox(j.status === 429 ? esc(j.error) : "PIN salah. Masukkan PIN penyimpanan server.", "Masuk", true);
+    showSaved();
+  }
+  var pushTimer = null, pushing = null;
+  function srvSchedule() {
+    if (!srv.on || !srv.ok) return;
+    clearTimeout(pushTimer); pushTimer = setTimeout(function () { srvPush(); }, 1500);
+  }
+  function srvPush(force) {
+    if (!srv.on || !srv.ok) return Promise.resolve();
+    if (pushing) return pushing.then(function () { return force ? srvPush() : null; });
+    var keys = belumTerkirim();
+    if (!keys.length) { if (force) { srv.err = ""; srv.lastOk = new Date(); showSaved(); } return Promise.resolve(); }
+    var days = {}, sent = {};
+    keys.forEach(function (k) { var b = bersih(state.days[k]); days[k] = b; sent[k] = sidik(JSON.stringify(b)); });
+    pushing = api("save", { days: days }).then(function (j) {
+      if (j.status === 401 || j.status === 429) return srvAuthFail(j);
+      if (!j.ok) throw new Error(j.error || "server " + j.status);
+      keys.forEach(function (k) { if (sent[k] === KOSONG) delete synced[k]; else synced[k] = sent[k]; });
+      simpanSidik(); srv.err = ""; srv.lastOk = new Date();
+    }).catch(function (e) {
+      srv.err = e && e.name === "AbortError" ? "server tidak menjawab" : navigator.onLine === false ? "tidak ada internet" : (e && e.message) || "gagal";
+    }).then(function () { pushing = null; showSaved(); });
+    return pushing;
+  }
+  function srvPull() {
+    if (!srv.on || !srv.ok) return Promise.resolve();
+    return api("load").then(function (j) {
+      if (j.status === 401 || j.status === 429) return srvAuthFail(j);
+      if (!j.ok) throw new Error(j.error || "server " + j.status);
+      var S = j.days || {}, lokal = {}, keys = {};
+      belumTerkirim().forEach(function (k) { lokal[k] = 1; });
+      Object.keys(state.days).forEach(function (k) { keys[k] = 1; }); Object.keys(S).forEach(function (k) { keys[k] = 1; });
+      var before = JSON.stringify(bersih(state.days[cur]));
+      Object.keys(keys).forEach(function (k) {
+        var s = S[k] || null, d = state.days[k];
+        if (lokal[k]) {
+          // Ada perubahan di perangkat ini yang belum terkirim: gabungkan resi, catatan lokal didahulukan
+          if (!s) return;
+          d = day(k);
+          if (d.sample) { d.items = d.items.filter(function (it) { return !it.s; }); delete d.sample; d.pesanan = d.pending = d.po = d.catatan = ""; }
+          var ada = {}; d.items.forEach(function (it) { ada[it.r] = 1; });
+          s.items.forEach(function (it) { if (!ada[it.r]) d.items.push({ r: it.r, c: it.c, t: it.t }); });
+          d.items.sort(function (a, b) { return a.t - b.t; });
+          ["pesanan", "pending", "po", "catatan"].forEach(function (f) { if (!d[f]) d[f] = s[f] || ""; });
+          synced[k] = sidik(JSON.stringify(s));
+        } else {
+          if (s) state.days[k] = { items: s.items.slice(), pesanan: s.pesanan || "", pending: s.pending || "", po: s.po || "", catatan: s.catatan || "" };
+          else delete state.days[k];
+          if (s) synced[k] = sidik(JSON.stringify(bersih(state.days[k]))); else delete synced[k];
+        }
+        try { writeDay(k); } catch (e) {}
+      });
+      simpanSidik(); srv.err = ""; srv.lastOk = new Date();
+      if (JSON.stringify(bersih(state.days[cur])) !== before || $("sampleBanner").hidden === !!day().sample) render();
+      showSaved();
+      return srvPush();
+    }).catch(function (e) {
+      srv.err = e && e.name === "AbortError" ? "server tidak menjawab" : navigator.onLine === false ? "tidak ada internet" : (e && e.message) || "gagal";
+      showSaved();
+    });
+  }
+  function srvLogin() {
+    srv.ok = true; srvBox(""); $("srvBackups").hidden = false; showSaved();
+    return srvPull();
+  }
+  $("pinBtn").onclick = function () {
+    var v = $("pinInput").value.trim();
+    if (v.length < 4) { srvBox("PIN minimal 4 karakter.", $("pinBtn").textContent, true); $("pinInput").focus(); return; }
+    var buat = !srv.pinSet;
+    (buat ? api("setpin", { pin: v }) : Promise.resolve({ ok: true })).then(function (j) {
+      if (!j.ok) { srvBox(esc(j.error || "PIN tidak bisa dibuat."), "Buat PIN", true); return; }
+      srv.pinSet = true; pin = v;
+      return api("load").then(function (t) {
+        if (t.status === 401 || t.status === 429) return srvAuthFail(t);
+        try { localStorage.setItem(PIN_KEY, pin); } catch (e) {}
+        toast(buat ? "PIN dibuat. Data sekarang tersimpan di server." : "Tersambung ke server");
+        return srvLogin();
+      });
+    }).catch(function () { srvBox("Server tidak bisa dihubungi. Coba lagi.", $("pinBtn").textContent, true); });
+  };
+  $("pinInput").addEventListener("keydown", function (e) { if (e.key === "Enter") { e.preventDefault(); $("pinBtn").click(); } });
+  $("srvBackups").onclick = function () {
+    var ul = $("srvList");
+    if (!ul.hidden) { ul.hidden = true; return; }
+    api("backups").then(function (j) {
+      if (j.status === 401 || j.status === 429) return srvAuthFail(j);
+      var list = j.cadangan || [];
+      ul.innerHTML = list.length ? list.map(function (b) {
+        return '<li><span>' + esc(longDate(b.nama.slice(9, 19))) + ' · ' + Math.max(1, Math.round(b.ukuran / 1024)) + ' KB</span><button data-f="' + esc(b.nama) + '">Unduh</button></li>';
+      }).join("") : "<li>Belum ada cadangan di server.</li>";
+      ul.hidden = false;
+    }).catch(function () { say("bad", "Daftar cadangan server tidak bisa diambil."); });
+  };
+  $("srvList").addEventListener("click", function (e) {
+    var f = e.target.getAttribute && e.target.getAttribute("data-f"); if (!f) return;
+    fetch("api.php?a=backup&f=" + encodeURIComponent(f), { headers: { "X-PIN": pin }, cache: "no-store" }).then(function (r) {
+      if (!r.ok) throw new Error(r.status); return r.text();
+    }).then(function (t) { saveFile(f.replace("cadangan-", "Cadangan Server Pengiriman Harian "), t, "application/json"); })
+      .catch(function () { say("bad", "Cadangan tidak bisa diunduh."); });
+  });
+  if (/^https?:$/.test(location.protocol)) {
+    api("status", null, 8000).then(function (j) {
+      if (!j.ok || j.app !== "laporan-pengiriman-harian") return;
+      srv.on = true; srv.pinSet = !!j.pinSet;
+      $("srvBackups").hidden = true;
+      if (!j.pinSet) srvBox("<b>Simpan ke server Hostinger.</b> Buat PIN (minimal 4 angka) untuk mengamankan data. PIN ini dipakai di semua komputer dan HP.", "Buat PIN");
+      else if (!pin) srvBox("<b>Masukkan PIN</b> penyimpanan server supaya data tersimpan dan sama di semua perangkat.", "Masuk");
+      else srvLogin();
+      showSaved();
+    }).catch(function () {});
+  }
+  // Kirim perubahan yang belum terkirim lewat sendBeacon, yang tetap jalan walau halaman sedang ditutup
+  function srvBeacon() {
+    if (!srv.on || !srv.ok || !navigator.sendBeacon) return;
+    var keys = belumTerkirim(); if (!keys.length) return;
+    var days = {}; keys.forEach(function (k) { days[k] = bersih(state.days[k]); });
+    try { navigator.sendBeacon("api.php?a=save", new Blob([JSON.stringify({ pin: pin, days: days })], { type: "text/plain" })); } catch (e) {}
+  }
+  document.addEventListener("visibilitychange", function () { if (document.visibilityState === "visible") srvPull(); else srvBeacon(); });
+  window.addEventListener("pagehide", srvBeacon);
+  window.addEventListener("online", function () { srvPush(); });
+
+  // Simpan otomatis tiap 5 menit (semua tanggal), sebagai pengaman tambahan; di server sekaligus ambil perubahan dari perangkat lain
+  setInterval(function () { save(Object.keys(state.days)); srvPull(); }, 5 * 60 * 1000);
 
   // Saat tab ditutup atau dimuat ulang: simpan dulu, lalu minta konfirmasi kalau ada data hari ini
   window.addEventListener("beforeunload", function (e) {
-    save(Object.keys(state.days));
+    save(Object.keys(state.days)); srvBeacon();
     if (hasData(day())) { e.preventDefault(); e.returnValue = "Data sudah disimpan. Yakin ingin menutup Laporan Pengiriman?"; return e.returnValue; }
   });
   // HP sering menutup tab tanpa beforeunload: simpan juga saat halaman disembunyikan

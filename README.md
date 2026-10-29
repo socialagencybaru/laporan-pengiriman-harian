@@ -41,3 +41,12 @@ Pola-pola ini diambil dari file Pengiriman Harian Oktober 2026. Untuk mengubahny
 ## Penyimpanan data
 
 Data tersimpan otomatis per tanggal di browser (localStorage) pada komputer yang dipakai untuk scan, setiap kali ada resi atau catatan yang berubah. Data juga disimpan otomatis setiap 5 menit, dan saat tab ditutup aplikasi menyimpan dulu lalu menampilkan peringatan. Tombol **Simpan sekarang** menyimpan manual dan memastikan datanya sudah tersimpan. Lewat tengah malam, aplikasi otomatis pindah ke tanggal baru. Kalau data browser dihapus, data ikut hilang. Karena itu, cadangkan data secara rutin lewat tombol "Cadangkan semua data". Gunakan "Buka file cadangan" untuk memulihkan data atau memindahkannya ke komputer lain.
+
+## Penyimpanan di server (Hostinger)
+
+Kalau `api.php` dan `.htaccess` diupload ke folder yang sama dengan `index.html` di hosting yang mendukung PHP (misalnya Hostinger), aplikasi otomatis menyimpan data ke server:
+
+- Saat pertama dibuka, buat PIN (minimal 4 karakter). PIN yang sama dipakai di semua komputer dan HP.
+- Setiap perubahan dikirim ke server dalam beberapa detik, ditambah setiap 5 menit dan saat tab ditutup. Data di browser tetap disimpan sebagai cadangan kalau internet putus, lalu dikirim ulang otomatis.
+- Data per tanggal ada di `data/hari/`, dan cadangan lengkap harian di `data/cadangan/` (disimpan 120 hari). Tombol **Cadangan di server** menampilkan dan mengunduh cadangan itu. Folder `data` ditutup dari akses web.
+- Lupa PIN: hapus `data/config.json` lewat File Manager, lalu buat PIN baru dari aplikasi. Datanya tidak ikut terhapus.
