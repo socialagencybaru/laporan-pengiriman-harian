@@ -47,6 +47,7 @@ Data tersimpan otomatis per tanggal di browser (localStorage) pada komputer yang
 Kalau `api.php` dan `.htaccess` diupload ke folder yang sama dengan `index.html` di hosting yang mendukung PHP (misalnya Hostinger), aplikasi otomatis menyimpan data ke server:
 
 - Saat pertama dibuka, buat PIN (minimal 4 karakter). PIN yang sama dipakai di semua komputer dan HP.
+- Beberapa komputer dan HP bisa scan bersamaan. Yang dikirim ke server hanya perubahannya (resi ditambah, dihapus, atau dipindah kurir, dan catatan), lalu server menggabungkannya, jadi resi dari perangkat lain tidak tertimpa. Resi dari perangkat lain muncul dalam sekitar 15 detik.
 - Setiap perubahan dikirim ke server dalam beberapa detik, ditambah setiap 5 menit dan saat tab ditutup. Data di browser tetap disimpan sebagai cadangan kalau internet putus, lalu dikirim ulang otomatis.
 - Data per tanggal ada di `data/hari/`, dan cadangan lengkap harian di `data/cadangan/` (disimpan 120 hari). Tombol **Cadangan di server** menampilkan dan mengunduh cadangan itu. Folder `data` ditutup dari akses web.
 - Lupa PIN: hapus `data/config.json` lewat File Manager, lalu buat PIN baru dari aplikasi. Datanya tidak ikut terhapus.

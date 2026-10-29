@@ -1025,25 +1025,64 @@ input, select, textarea { background: var(--panel); border: 1px solid var(--line
   }, 30000);
 
   // ---------- penyimpanan di server (api.php) ----------
-  // Tiap tanggal dibandingkan dengan versi terakhir yang sudah dikirim ke server (sidik "lph.server.synced").
-  // Tanggal yang berubah dikirim otomatis; saat dibuka, data server dipakai kecuali ada perubahan lokal yang belum terkirim.
-  var SYNC_KEY = "lph.server.synced", PIN_KEY = "lph.pin";
-  var synced = {}, pin = "";
-  try { synced = JSON.parse(localStorage.getItem(SYNC_KEY) || "{}") || {}; pin = localStorage.getItem(PIN_KEY) || ""; } catch (e) {}
-  function sidik(str) { var h = 5381; for (var i = 0; i < str.length; i++) h = ((h << 5) + h + str.charCodeAt(i)) | 0; return (h >>> 0).toString(36) + "." + str.length; }
+  // Beberapa komputer/HP bisa scan bersamaan. Yang dikirim ke server hanya perubahan (resi ditambah,
+  // resi dihapus, catatan diubah) dibanding versi server terakhir yang diketahui perangkat ini ("lph.server.base").
+  // Server menggabungkan perubahan itu ke datanya, jadi resi dari perangkat lain tidak tertimpa.
+  var BASE_KEY = "lph.server.base", PIN_KEY = "lph.pin", SINCE_KEY = "lph.server.since", NOTE_F = ["pesanan", "pending", "po", "catatan"];
+  var base = {}, pin = "", since = 0;
+  try { base = JSON.parse(localStorage.getItem(BASE_KEY) || "{}") || {}; pin = localStorage.getItem(PIN_KEY) || ""; since = +localStorage.getItem(SINCE_KEY) || 0; } catch (e) {}
+  try { localStorage.removeItem("lph.server.synced"); } catch (e) {}
   function bersih(d) {
     if (!d || !d.items) return null;
     var items = d.items.filter(function (it) { return !it.s; }).map(function (it) { return { r: it.r, c: it.c, t: it.t }; });
-    var o = d.sample ? { items: items, pesanan: "", pending: "", po: "", catatan: "" } : { items: items, pesanan: d.pesanan || "", pending: d.pending || "", po: d.po || "", catatan: d.catatan || "" };
+    var o = { items: items, pesanan: "", pending: "", po: "", catatan: "" };
+    if (!d.sample) NOTE_F.forEach(function (f) { o[f] = d[f] || ""; });
     return hasData(o) ? o : null;
   }
-  function sidikHari(d) { return sidik(JSON.stringify(bersih(d))); }
-  var KOSONG = sidik("null");
-  function belumTerkirim() {
-    var keys = {}; Object.keys(state.days).forEach(function (k) { keys[k] = 1; }); Object.keys(synced).forEach(function (k) { keys[k] = 1; });
-    return Object.keys(keys).filter(function (k) { return sidikHari(state.days[k]) !== (synced[k] || KOSONG); });
+  // Versi ringkas untuk pembanding: resi -> kurir, plus catatan
+  function ringkas(d) {
+    if (!d) return null;
+    var i = {}; d.items.forEach(function (it) { i[it.r] = it.c; });
+    var n = {}; NOTE_F.forEach(function (f) { n[f] = d[f] || ""; });
+    return { i: i, n: n };
   }
-  function simpanSidik() { try { localStorage.setItem(SYNC_KEY, JSON.stringify(synced)); } catch (e) {} }
+  var KOSONG = { i: {}, n: {} };
+  function perubahan(k) {
+    var L = bersih(state.days[k]) || { items: [], pesanan: "", pending: "", po: "", catatan: "" }, B = base[k] || KOSONG;
+    var add = [], del = [], set = {}, ada = {};
+    L.items.forEach(function (it) { ada[it.r] = 1; if (B.i[it.r] !== it.c) add.push(it); });
+    Object.keys(B.i).forEach(function (r) { if (!ada[r]) del.push(r); });
+    NOTE_F.forEach(function (f) { if ((L[f] || "") !== (B.n[f] || "")) set[f] = L[f] || ""; });
+    return add.length || del.length || Object.keys(set).length ? { add: add, del: del, set: set } : null;
+  }
+  function belumTerkirim() {
+    var keys = {}; Object.keys(state.days).forEach(function (k) { keys[k] = 1; }); Object.keys(base).forEach(function (k) { keys[k] = 1; });
+    return Object.keys(keys).filter(function (k) { return perubahan(k); });
+  }
+  function semuaPerubahan() { var ops = {}; belumTerkirim().forEach(function (k) { ops[k] = perubahan(k); }); return ops; }
+  function simpanBase() { try { localStorage.setItem(BASE_KEY, JSON.stringify(base)); localStorage.setItem(SINCE_KEY, String(since)); } catch (e) {} }
+  // Gabungkan versi server S dengan perubahan lokal yang belum diketahui server (dibanding base)
+  function gabung(k, S) {
+    var L = bersih(state.days[k]) || { items: [], pesanan: "", pending: "", po: "", catatan: "" }, B = base[k] || KOSONG;
+    var hasil = {}, urut = [];
+    (S ? S.items : []).forEach(function (it) { hasil[it.r] = { r: it.r, c: it.c, t: it.t }; });
+    var adaL = {};
+    L.items.forEach(function (it) {
+      adaL[it.r] = 1;
+      if (B.i[it.r] === undefined) { if (!hasil[it.r]) hasil[it.r] = { r: it.r, c: it.c, t: it.t }; }
+      else if (B.i[it.r] !== it.c && hasil[it.r]) hasil[it.r].c = it.c;
+    });
+    Object.keys(B.i).forEach(function (r) { if (!adaL[r]) delete hasil[r]; });
+    Object.keys(hasil).forEach(function (r) { urut.push(hasil[r]); });
+    urut.sort(function (x, y) { return x.t - y.t; });
+    var d = { items: urut };
+    NOTE_F.forEach(function (f) { d[f] = (L[f] || "") !== (B.n[f] || "") ? L[f] || "" : (S && S[f]) || ""; });
+    var lama = JSON.stringify(state.days[k] || null);
+    if (hasData(d)) state.days[k] = d; else delete state.days[k];
+    if (S) base[k] = ringkas(S); else delete base[k];
+    try { writeDay(k); } catch (e) {}
+    return lama !== JSON.stringify(state.days[k] || null);
+  }
   function api(a, body, timeout) {
     var ctl = window.AbortController ? new AbortController() : null;
     var tm = ctl ? setTimeout(function () { ctl.abort(); }, timeout || 20000) : null;
@@ -1066,64 +1105,51 @@ input, select, textarea { background: var(--panel); border: 1px solid var(--line
     srvBox(j.status === 429 ? esc(j.error) : "PIN salah. Masukkan PIN penyimpanan server.", "Masuk", true);
     showSaved();
   }
-  var pushTimer = null, pushing = null;
+  function srvGagal(e) {
+    srv.err = e && e.name === "AbortError" ? "server tidak menjawab" : navigator.onLine === false ? "tidak ada internet" : (e && e.message) || "gagal";
+    showSaved();
+  }
+  // Satu antrean: kirim dan ambil data tidak pernah berjalan bersamaan
+  var antre = Promise.resolve();
+  function antri(fn) { antre = antre.then(fn).catch(srvGagal); return antre; }
+  function terapkan(days) {
+    var ubahCur = false;
+    Object.keys(days).forEach(function (k) { if (gabung(k, days[k]) && k === cur) ubahCur = true; });
+    simpanBase(); srv.err = ""; srv.lastOk = new Date();
+    if (ubahCur || $("sampleBanner").hidden === !!day().sample) render();
+    showSaved();
+  }
+  var pushTimer = null;
   function srvSchedule() {
     if (!srv.on || !srv.ok) return;
-    clearTimeout(pushTimer); pushTimer = setTimeout(function () { srvPush(); }, 1500);
+    clearTimeout(pushTimer); pushTimer = setTimeout(function () { srvPush(); }, 1200);
   }
   function srvPush(force) {
     if (!srv.on || !srv.ok) return Promise.resolve();
-    if (pushing) return pushing.then(function () { return force ? srvPush() : null; });
-    var keys = belumTerkirim();
-    if (!keys.length) { if (force) { srv.err = ""; srv.lastOk = new Date(); showSaved(); } return Promise.resolve(); }
-    var days = {}, sent = {};
-    keys.forEach(function (k) { var b = bersih(state.days[k]); days[k] = b; sent[k] = sidik(JSON.stringify(b)); });
-    pushing = api("save", { days: days }).then(function (j) {
-      if (j.status === 401 || j.status === 429) return srvAuthFail(j);
-      if (!j.ok) throw new Error(j.error || "server " + j.status);
-      keys.forEach(function (k) { if (sent[k] === KOSONG) delete synced[k]; else synced[k] = sent[k]; });
-      simpanSidik(); srv.err = ""; srv.lastOk = new Date();
-    }).catch(function (e) {
-      srv.err = e && e.name === "AbortError" ? "server tidak menjawab" : navigator.onLine === false ? "tidak ada internet" : (e && e.message) || "gagal";
-    }).then(function () { pushing = null; showSaved(); });
-    return pushing;
+    return antri(function () {
+      var ops = semuaPerubahan();
+      if (!Object.keys(ops).length) { if (force) { srv.err = ""; srv.lastOk = new Date(); showSaved(); } return; }
+      return api("save", { ops: ops }).then(function (j) {
+        if (j.status === 401 || j.status === 429) return srvAuthFail(j);
+        if (!j.ok) throw new Error(j.error || "server " + j.status);
+        terapkan(j.days || {});
+      });
+    });
   }
   function srvPull() {
     if (!srv.on || !srv.ok) return Promise.resolve();
-    return api("load").then(function (j) {
-      if (j.status === 401 || j.status === 429) return srvAuthFail(j);
-      if (!j.ok) throw new Error(j.error || "server " + j.status);
-      var S = j.days || {}, lokal = {}, keys = {};
-      belumTerkirim().forEach(function (k) { lokal[k] = 1; });
-      Object.keys(state.days).forEach(function (k) { keys[k] = 1; }); Object.keys(S).forEach(function (k) { keys[k] = 1; });
-      var before = JSON.stringify(bersih(state.days[cur]));
-      Object.keys(keys).forEach(function (k) {
-        var s = S[k] || null, d = state.days[k];
-        if (lokal[k]) {
-          // Ada perubahan di perangkat ini yang belum terkirim: gabungkan resi, catatan lokal didahulukan
-          if (!s) return;
-          d = day(k);
-          if (d.sample) { d.items = d.items.filter(function (it) { return !it.s; }); delete d.sample; d.pesanan = d.pending = d.po = d.catatan = ""; }
-          var ada = {}; d.items.forEach(function (it) { ada[it.r] = 1; });
-          s.items.forEach(function (it) { if (!ada[it.r]) d.items.push({ r: it.r, c: it.c, t: it.t }); });
-          d.items.sort(function (a, b) { return a.t - b.t; });
-          ["pesanan", "pending", "po", "catatan"].forEach(function (f) { if (!d[f]) d[f] = s[f] || ""; });
-          synced[k] = sidik(JSON.stringify(s));
-        } else {
-          if (s) state.days[k] = { items: s.items.slice(), pesanan: s.pesanan || "", pending: s.pending || "", po: s.po || "", catatan: s.catatan || "" };
-          else delete state.days[k];
-          if (s) synced[k] = sidik(JSON.stringify(bersih(state.days[k]))); else delete synced[k];
-        }
-        try { writeDay(k); } catch (e) {}
+    return antri(function () {
+      return api("load&since=" + since).then(function (j) {
+        if (j.status === 401 || j.status === 429) return srvAuthFail(j);
+        if (!j.ok) throw new Error(j.error || "server " + j.status);
+        var days = j.days || {}, semua = {};
+        (j.keys || []).forEach(function (k) { semua[k] = 1; });
+        // Tanggal yang sudah dihapus di server (dikosongkan di perangkat lain)
+        Object.keys(base).forEach(function (k) { if (!semua[k] && !(k in days)) days[k] = null; });
+        if (j.sekarang) since = j.sekarang - 3;
+        terapkan(days);
       });
-      simpanSidik(); srv.err = ""; srv.lastOk = new Date();
-      if (JSON.stringify(bersih(state.days[cur])) !== before || $("sampleBanner").hidden === !!day().sample) render();
-      showSaved();
-      return srvPush();
-    }).catch(function (e) {
-      srv.err = e && e.name === "AbortError" ? "server tidak menjawab" : navigator.onLine === false ? "tidak ada internet" : (e && e.message) || "gagal";
-      showSaved();
-    });
+    }).then(function () { if (belumTerkirim().length) return srvPush(); });
   }
   function srvLogin() {
     srv.ok = true; srvBox(""); $("srvBackups").hidden = false; showSaved();
@@ -1178,15 +1204,16 @@ input, select, textarea { background: var(--panel); border: 1px solid var(--line
   // Kirim perubahan yang belum terkirim lewat sendBeacon, yang tetap jalan walau halaman sedang ditutup
   function srvBeacon() {
     if (!srv.on || !srv.ok || !navigator.sendBeacon) return;
-    var keys = belumTerkirim(); if (!keys.length) return;
-    var days = {}; keys.forEach(function (k) { days[k] = bersih(state.days[k]); });
-    try { navigator.sendBeacon("api.php?a=save", new Blob([JSON.stringify({ pin: pin, days: days })], { type: "text/plain" })); } catch (e) {}
+    var ops = semuaPerubahan(); if (!Object.keys(ops).length) return;
+    try { navigator.sendBeacon("api.php?a=save", new Blob([JSON.stringify({ pin: pin, ops: ops })], { type: "text/plain" })); } catch (e) {}
   }
   document.addEventListener("visibilitychange", function () { if (document.visibilityState === "visible") srvPull(); else srvBeacon(); });
   window.addEventListener("pagehide", srvBeacon);
   window.addEventListener("online", function () { srvPush(); });
 
-  // Simpan otomatis tiap 5 menit (semua tanggal), sebagai pengaman tambahan; di server sekaligus ambil perubahan dari perangkat lain
+  // Ambil resi dari komputer/HP lain tiap 15 detik selama halaman terbuka
+  setInterval(function () { if (document.visibilityState === "visible") srvPull(); }, 15000);
+  // Simpan otomatis tiap 5 menit (semua tanggal), sebagai pengaman tambahan
   setInterval(function () { save(Object.keys(state.days)); srvPull(); }, 5 * 60 * 1000);
 
   // Saat tab ditutup atau dimuat ulang: simpan dulu, lalu minta konfirmasi kalau ada data hari ini

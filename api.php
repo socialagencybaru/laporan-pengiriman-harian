@@ -96,27 +96,72 @@ function bersihkan($d) {
   return $hasil;
 }
 
-if ($a === 'load') out(200, array('ok' => true, 'days' => (object)semuaHari($HARI), 'waktu' => date('c')));
+if ($a === 'load') {
+  // since: hanya kirim tanggal yang berubah sejak waktu itu; keys: semua tanggal yang ada (untuk deteksi tanggal yang dihapus)
+  $since = isset($_GET['since']) ? (float)$_GET['since'] : 0;
+  $sekarang = time();
+  clearstatcache();
+  $days = array(); $keys = array();
+  foreach (glob($HARI . '/*.json') as $f) {
+    $k = basename($f, '.json');
+    if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $k)) continue;
+    $keys[] = $k;
+    if (filemtime($f) >= $since) { $d = bacaJson($f); if ($d) $days[$k] = $d; }
+  }
+  out(200, array('ok' => true, 'days' => (object)$days, 'keys' => $keys, 'sekarang' => $sekarang));
+}
 
 if ($a === 'save') {
   if (!$post) out(405, array('ok' => false));
-  $masuk = isset($body['days']) && is_array($body['days']) ? $body['days'] : array();
-  $disimpan = array();
-  foreach ($masuk as $k => $d) {
-    if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $k)) continue;
+  // ops per tanggal: add (resi baru / kurir diganti), del (resi dihapus), set (catatan yang diubah).
+  // Perubahan digabung ke data server, sehingga beberapa perangkat bisa scan bersamaan tanpa saling menimpa.
+  $ops = isset($body['ops']) && is_array($body['ops']) ? $body['ops'] : array();
+  if (isset($body['days']) && is_array($body['days'])) {
+    // Format lama (seluruh isi tanggal): perlakukan sebagai tambahan saja, tidak pernah menghapus
+    foreach ($body['days'] as $k => $d) if (is_array($d) && isset($d['items']) && is_array($d['items'])) {
+      $set = array(); foreach (array('pesanan', 'pending', 'po', 'catatan') as $f) if (isset($d[$f]) && $d[$f] !== '') $set[$f] = $d[$f];
+      $ops[$k] = array('add' => $d['items'], 'del' => array(), 'set' => $set);
+    }
+  }
+  $kunci = fopen($DATA . '/.kunci', 'c');
+  flock($kunci, LOCK_EX);
+  $hasil = array();
+  foreach ($ops as $k => $op) {
+    if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $k) || !is_array($op)) continue;
     $f = $HARI . '/' . $k . '.json';
+    $d = bacaJson($f);
+    if (!$d) $d = array('items' => array(), 'pesanan' => '', 'pending' => '', 'po' => '', 'catatan' => '');
+    $pos = array();
+    foreach ($d['items'] as $i => $it) $pos[$it['r']] = $i;
+    if (isset($op['add']) && is_array($op['add'])) foreach ($op['add'] as $it) {
+      if (!is_array($it) || !isset($it['r'])) continue;
+      $r = teks($it['r'], 60); if ($r === '') continue;
+      $c = teks(isset($it['c']) ? $it['c'] : '', 12);
+      if (isset($pos[$r])) $d['items'][$pos[$r]]['c'] = $c;
+      else { $pos[$r] = count($d['items']); $d['items'][] = array('r' => $r, 'c' => $c, 't' => isset($it['t']) ? (int)$it['t'] : 0); }
+    }
+    if (isset($op['del']) && is_array($op['del'])) {
+      $hapus = array(); foreach ($op['del'] as $r) if (is_scalar($r)) $hapus[(string)$r] = 1;
+      $d['items'] = array_values(array_filter($d['items'], function ($it) use ($hapus) { return !isset($hapus[$it['r']]); }));
+    }
+    if (isset($op['set']) && is_array($op['set'])) foreach (array('pesanan', 'pending', 'po', 'catatan') as $fld) if (array_key_exists($fld, $op['set'])) $d[$fld] = $op['set'][$fld];
+    usort($d['items'], function ($x, $y) { return $x['t'] - $y['t']; });
     $d = bersihkan($d);
     if ($d === null) { if (is_file($f)) unlink($f); }
-    else if (!tulis($f, json_encode($d, JSON_UNESCAPED_UNICODE))) out(500, array('ok' => false, 'error' => 'Gagal menulis data ' . $k));
-    $disimpan[] = $k;
+    else if (!tulis($f, json_encode($d, JSON_UNESCAPED_UNICODE))) { flock($kunci, LOCK_UN); out(500, array('ok' => false, 'error' => 'Gagal menulis data ' . $k)); }
+    $hasil[$k] = $d;
   }
-  // Cadangan harian otomatis: salinan lengkap semua data, satu file per hari
-  $semua = semuaHari($HARI);
-  tulis($CADANGAN . '/cadangan-' . date('Y-m-d') . '.json', json_encode(array('app' => 'laporan-pengiriman-harian', 'versi' => 1, 'dibuat' => date('c'), 'days' => (object)$semua), JSON_UNESCAPED_UNICODE));
-  $files = glob($CADANGAN . '/cadangan-*.json');
-  sort($files);
-  while (count($files) > $SIMPAN_CADANGAN) unlink(array_shift($files));
-  out(200, array('ok' => true, 'disimpan' => $disimpan, 'waktu' => date('c')));
+  // Cadangan harian otomatis: salinan lengkap semua data, satu file per hari, diperbarui paling sering tiap 10 menit
+  $cf = $CADANGAN . '/cadangan-' . date('Y-m-d') . '.json';
+  if ($hasil && (!is_file($cf) || filemtime($cf) < time() - 600)) {
+    $semua = semuaHari($HARI);
+    tulis($cf, json_encode(array('app' => 'laporan-pengiriman-harian', 'versi' => 1, 'dibuat' => date('c'), 'days' => (object)$semua), JSON_UNESCAPED_UNICODE));
+    $files = glob($CADANGAN . '/cadangan-*.json');
+    sort($files);
+    while (count($files) > $SIMPAN_CADANGAN) unlink(array_shift($files));
+  }
+  flock($kunci, LOCK_UN);
+  out(200, array('ok' => true, 'days' => (object)$hasil, 'waktu' => date('c')));
 }
 
 if ($a === 'backups') {
