@@ -13,7 +13,9 @@ Buka `index.html` di browser (Chrome atau Edge). Aplikasi ini tidak butuh server
 
 ## Fitur
 
+- Logo SAB Online di samping judul aplikasi dan di laporan PDF.
 - Deteksi kurir otomatis dari pola nomor resi. Resi yang tidak dikenali masuk ke "Lainnya" dan bisa dipindah ke kurir lain secara manual.
+- Pengecekan jumlah karakter resi sesuai kurirnya (misalnya J&T Express `JY` harus 12 karakter). Resi yang kurang atau kelebihan karakter ditolak dengan pesan SALAH dan tidak disimpan, jadi bisa langsung discan ulang.
 - Resi yang discan dua kali di hari yang sama ditolak. Ada peringatan kalau resi pernah discan di tanggal lain.
 - Bisa menempel banyak resi sekaligus (satu resi per baris).
 - Scan barcode resi pakai kamera HP, langsung dari kamera atau dari foto label. Untuk kamera langsung, halaman harus dibuka lewat https (misalnya GitHub Pages). Kalau tidak, pakai tombol "Foto barcode".
@@ -27,15 +29,15 @@ Buka `index.html` di browser (Chrome atau Edge). Aplikasi ini tidak butuh server
 | Kurir | Pola | Contoh |
 |---|---|---|
 | Shopee Express | `SPXID…` | SPXID06916034017A |
-| J&T Express | `JY` + 10 angka | JY1843706064 |
+| J&T Express | `JY` + 10 angka (12 karakter) | JY1810645074 |
 | ID Express | `TKP` + 10 angka | TKP8023805494 |
 | JNE | `CM`/`JY`/`JT` + 11 angka, `TG` + 10 angka | CM37832267208 |
 | POS Indonesia | `SHPE` + 18 karakter, `TTSPOS…` | SHPE261001448DF0017145 |
 | J&T Cargo | 12 angka berawalan `20` atau `57` | 201833058622 |
 | Instan / Sameday | 6 angka tanggal + 8 karakter | 260930DDK8YJNB |
 
-Pola-pola ini diambil dari file Pengiriman Harian Oktober 2026. Untuk mengubahnya, edit daftar `RULES` di `index.html`.
+Pola-pola ini diambil dari file Pengiriman Harian Oktober 2026. Untuk mengubahnya, edit daftar `RULES` (pola kurir) dan `LEN_RULES` (jumlah karakter) di `index.html`.
 
 ## Penyimpanan data
 
-Data tersimpan di browser (localStorage) pada komputer yang dipakai untuk scan. Kalau data browser dihapus, data ikut hilang. Karena itu, cadangkan data secara rutin lewat tombol "Cadangkan semua data". Gunakan "Buka file cadangan" untuk memulihkan data atau memindahkannya ke komputer lain.
+Data tersimpan otomatis per tanggal di browser (localStorage) pada komputer yang dipakai untuk scan, setiap kali ada resi atau catatan yang berubah. Tombol **Simpan sekarang** menyimpan manual dan memastikan datanya sudah tersimpan. Lewat tengah malam, aplikasi otomatis pindah ke tanggal baru. Kalau data browser dihapus, data ikut hilang. Karena itu, cadangkan data secara rutin lewat tombol "Cadangkan semua data". Gunakan "Buka file cadangan" untuk memulihkan data atau memindahkannya ke komputer lain.
