@@ -54,4 +54,4 @@ Kalau `api.php` dan `.htaccess` diupload ke folder yang sama dengan `index.html`
 
 ## Cadangan file bulanan
 
-Setiap komputer wajib membuat file cadangan (.json) minimal sebulan sekali. Di hari terakhir tiap bulan muncul pengingat. Kalau komputer belum pernah membuat cadangan, atau cadangan akhir bulan lalu terlewat, input resi dikunci sampai tombol **Cadangkan sekarang** ditekan.
+Mulai tanggal 1 setiap bulan, aplikasi mengecek apakah komputer ini sudah membuat file cadangan (.json) di bulan berjalan. Kalau belum, muncul pop-up sebelum resi baru diinput: OK mengunduh file cadangan, Batal melanjutkan tanpa cadangan dan pop-up muncul lagi besok.

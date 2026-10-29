@@ -112,7 +112,6 @@ input, select, textarea { background: var(--panel); border: 1px solid var(--line
 .group li button { padding: 1px 7px; font-size: .85rem; line-height: 1.3; }
 .empty { background: var(--panel); border: 1px dashed var(--line); border-radius: 10px; padding: 28px; text-align: center; color: var(--muted); }
 
-.banner.wajib { background: #fdecea; border-color: var(--bad); }
 .banner { background: var(--scan); border: 1px solid var(--scan-line); border-radius: 8px; padding: 10px 12px; display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between; }
 .hist { display: grid; gap: 4px; max-height: 260px; overflow-y: auto; }
 .hist button { display: flex; justify-content: space-between; text-align: left; font-variant-numeric: tabular-nums; border-color: transparent; }
@@ -161,10 +160,6 @@ input, select, textarea { background: var(--panel); border: 1px solid var(--line
   <div class="banner" id="sampleBanner" hidden>
     <span>Ini data <b>contoh</b> supaya terlihat cara kerjanya. Hapus dulu sebelum mulai scan.</span>
     <button id="clearSample" class="primary">Hapus data contoh</button>
-  </div>
-  <div class="banner" id="backupBanner" hidden>
-    <span id="backupBannerText"></span>
-    <span class="actions"><button id="backupNow" class="primary">Cadangkan sekarang</button><button id="backupLater">Nanti</button></span>
   </div>
 
   <div class="grid">
@@ -360,7 +355,6 @@ input, select, textarea { background: var(--panel); border: 1px solid var(--line
     try { (keys || [cur]).forEach(writeDay); storageOk = true; savedAt = new Date(); }
     catch (e) { if (storageOk) say("bad", "Data tidak bisa disimpan di browser ini (penyimpanan penuh atau diblokir). Cadangkan data atau unduh laporan sebelum menutup halaman."); storageOk = false; }
     showSaved();
-    cekPengingat();
     if (typeof srvSchedule === "function") srvSchedule();
   }
   function hms(d) { return pad(d.getHours()) + ":" + pad(d.getMinutes()) + ":" + pad(d.getSeconds()); }
@@ -481,7 +475,7 @@ input, select, textarea { background: var(--panel); border: 1px solid var(--line
     return { r: r, c: c };
   }
   function submit(lines) {
-    if (wajibCadangan()) { beep(false); say("bad", "<b>Input dikunci.</b> Cadangkan data ke file dulu lewat tombol <b>Cadangkan sekarang</b> di bagian atas, baru bisa menambah resi."); cekPengingat(); return; }
+    if (lines.some(function (l) { return norm(l); }) && perluCadangan()) tanyaCadangan();
     var added = 0, dups = [], bads = [], used = [], last = null;
     lines.forEach(function (l) {
       var res = add(l); if (!res) return;
@@ -848,39 +842,27 @@ input, select, textarea { background: var(--panel); border: 1px solid var(--line
     if (!Object.keys(out.days).length) { say("warn", "Belum ada data untuk dicadangkan."); return; }
     saveFile("Cadangan Pengiriman Harian " + iso(new Date()) + ".json", JSON.stringify(out, null, 1), "application/json").then(function () {
       try { localStorage.setItem(BACKUP_KEY, iso(new Date())); } catch (e) {}
-      cekPengingat();
     });
   };
-  // Cadangan file bulanan (per komputer): pengingat di hari terakhir tiap bulan. Kalau komputer ini belum pernah
-  // membuat cadangan, atau cadangan akhir bulan lalu terlewat, input resi dikunci sampai cadangan dibuat.
+  // Cadangan file bulanan (per komputer): mulai tanggal 1 tiap bulan, kalau komputer ini belum membuat file cadangan
+  // di bulan berjalan, muncul pop-up sebelum resi baru diinput. Kalau dilewati, pop-up muncul lagi besok.
   var BACKUP_KEY = "lph.cadangan.terakhir", TUNDA_KEY = "lph.cadangan.tunda";
-  function akhirBulan(d) { return iso(new Date(d.getFullYear(), d.getMonth() + 1, 0)); }
   function cadanganTerakhir() { try { return localStorage.getItem(BACKUP_KEY) || ""; } catch (e) { return ""; } }
   function adaDataNyata() { return Object.keys(state.days).some(function (k) { var d = state.days[k]; return d.items.some(function (it) { return !it.s; }) || (!d.sample && hasData(d)); }); }
-  function wajibCadangan() {
+  function perluCadangan() {
     if (!adaDataNyata()) return false;
-    var now = new Date(), last = cadanganTerakhir();
-    var batas = akhirBulan(new Date(now.getFullYear(), now.getMonth() - 1, 1));
-    return !last || last < batas;
-  }
-  function cekPengingat() {
-    var now = new Date(), hari = iso(now), last = cadanganTerakhir(), tunda = "";
+    var now = new Date(), last = cadanganTerakhir(), tunda = "";
     try { tunda = localStorage.getItem(TUNDA_KEY) || ""; } catch (e) {}
-    var wajib = wajibCadangan();
-    var ingat = !wajib && adaDataNyata() && hari === akhirBulan(now) && last !== hari && tunda !== hari;
-    $("backupBanner").hidden = !(wajib || ingat);
-    $("backupBanner").classList.toggle("wajib", wajib);
-    $("backupLater").hidden = wajib;
-    if (wajib) $("backupBannerText").innerHTML = "<b>Input dikunci: cadangkan data dulu.</b> " +
-      (last ? "Cadangan akhir bulan terlewat (terakhir dari komputer ini: " + esc(longDate(last)) + "). " : "Komputer ini belum pernah membuat file cadangan. ") +
-      "Klik Cadangkan sekarang, simpan filenya di folder SynologyDrive, lalu resi bisa diinput lagi.";
-    else if (ingat) $("backupBannerText").innerHTML = "<b>Akhir bulan: waktunya cadangan bulanan.</b> Unduh file cadangan (.json), lalu simpan di folder SynologyDrive. Kalau terlewat, besok input resi dikunci sampai cadangan dibuat.";
-    $("resi").disabled = wajib; $("camBtn").disabled = wajib; $("photoBtn").disabled = wajib;
-    $("resi").placeholder = wajib ? "Cadangkan data dulu (lihat kotak di atas)" : "Scan atau ketik resi, lalu Enter";
+    var awalBulan = iso(new Date(now.getFullYear(), now.getMonth(), 1));
+    return (!last || last < awalBulan) && tunda !== iso(now);
   }
-  $("backupNow").onclick = function () { $("backupBtn").click(); };
-  $("backupLater").onclick = function () { try { localStorage.setItem(TUNDA_KEY, iso(new Date())); } catch (e) {} $("backupBanner").hidden = true; };
-  setInterval(cekPengingat, 10 * 60 * 1000);
+  function tanyaCadangan() {
+    var last = cadanganTerakhir();
+    var ya = window.confirm("Cadangan bulan " + BULAN[new Date().getMonth()] + " belum dibuat di komputer ini" +
+      (last ? " (terakhir: " + longDate(last) + ")" : "") + ".\n\nOK = unduh file cadangan sekarang, lalu simpan di folder SynologyDrive.\nBatal = lanjut tanpa cadangan (diingatkan lagi besok).");
+    if (ya) $("backupBtn").click();
+    else { try { localStorage.setItem(TUNDA_KEY, iso(new Date())); } catch (e) {} }
+  }
   $("restoreBtn").onclick = function () { $("restoreFile").value = ""; $("restoreFile").click(); };
   // Buka file: cadangan .json, daftar harian .csv, atau Excel (.xlsx/.xls) berformat "Pengiriman Harian"
   var BULAN_KEY = { JAN: 1, FEB: 2, MAR: 3, APR: 4, MEI: 5, MAY: 5, JUN: 6, JUL: 7, AGU: 8, AGS: 8, AGT: 8, AUG: 8, SEP: 9, OKT: 10, OCT: 10, NOV: 11, NOP: 11, DES: 12, DEC: 12 };
@@ -1201,7 +1183,7 @@ input, select, textarea { background: var(--panel); border: 1px solid var(--line
     Object.keys(days).forEach(function (k) { if (gabung(k, days[k]) && k === cur) ubahCur = true; });
     simpanBase(); srv.err = ""; srv.lastOk = new Date();
     if (ubahCur || $("sampleBanner").hidden === !!day().sample) render();
-    showSaved(); cekPengingat();
+    showSaved();
   }
   var pushTimer = null;
   function srvSchedule() {
@@ -1332,7 +1314,6 @@ input, select, textarea { background: var(--panel); border: 1px solid var(--line
 
   render();
   showSaved();
-  cekPengingat();
   $("resi").focus();
 })();
 </script>
