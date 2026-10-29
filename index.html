@@ -212,7 +212,7 @@ input, select, textarea { background: var(--panel); border: 1px solid var(--line
           <button id="restoreBtn">Buka file laporan</button>
           <input type="file" id="restoreFile" accept=".json,.csv,.xlsx,.xls,application/json,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" hidden>
         </div>
-        <div class="hint">Data tersimpan otomatis di browser ini. Cadangkan rutin supaya aman. "Buka file laporan" bisa membuka file cadangan (.json), daftar harian (.csv), atau Excel "Pengiriman Harian" (.xlsx), lalu datanya masuk ke riwayat.</div>
+        <div class="hint">Data tersimpan otomatis di browser ini setiap ada perubahan dan setiap 5 menit. Saat tab ditutup, data disimpan dulu dan muncul peringatan. Cadangkan rutin supaya aman. "Buka file laporan" bisa membuka file cadangan (.json), daftar harian (.csv), atau Excel "Pengiriman Harian" (.xlsx), lalu datanya masuk ke riwayat.</div>
       </section>
 
       <section class="panel">
@@ -336,8 +336,8 @@ input, select, textarea { background: var(--panel); border: 1px solid var(--line
     var el = document.getElementById("savedInfo"); if (!el) return;
     el.className = "saved" + (storageOk ? "" : " bad");
     el.textContent = !storageOk ? "Gagal menyimpan di browser. Segera cadangkan data ke file."
-      : savedAt ? "✓ Tersimpan otomatis pukul " + pad(savedAt.getHours()) + ":" + pad(savedAt.getMinutes()) + ":" + pad(savedAt.getSeconds()) + " · data per tanggal"
-      : "✓ Data tersimpan otomatis per tanggal di browser ini";
+      : savedAt ? "✓ Tersimpan pukul " + pad(savedAt.getHours()) + ":" + pad(savedAt.getMinutes()) + ":" + pad(savedAt.getSeconds()) + " · simpan otomatis tiap ada perubahan dan tiap 5 menit"
+      : "✓ Data tersimpan otomatis per tanggal di browser ini, juga tiap 5 menit";
   }
 
   // Unduhan: di pratinjau Claude lewat kapabilitas downloads, di browser biasa lewat tautan unduh
@@ -992,6 +992,17 @@ input, select, textarea { background: var(--panel); border: 1px solid var(--line
     var prev = today; today = now;
     if (cur === prev) { go(now); toast("Hari baru: laporan " + longDate(now) + " dimulai. Data " + longDate(prev) + " sudah tersimpan."); }
   }, 30000);
+
+  // Simpan otomatis tiap 5 menit (semua tanggal), sebagai pengaman tambahan
+  setInterval(function () { save(Object.keys(state.days)); }, 5 * 60 * 1000);
+
+  // Saat tab ditutup atau dimuat ulang: simpan dulu, lalu minta konfirmasi kalau ada data hari ini
+  window.addEventListener("beforeunload", function (e) {
+    save(Object.keys(state.days));
+    if (hasData(day())) { e.preventDefault(); e.returnValue = "Data sudah disimpan. Yakin ingin menutup Laporan Pengiriman?"; return e.returnValue; }
+  });
+  // HP sering menutup tab tanpa beforeunload: simpan juga saat halaman disembunyikan
+  document.addEventListener("visibilitychange", function () { if (document.visibilityState === "hidden") save(Object.keys(state.days)); });
 
   render();
   showSaved();
