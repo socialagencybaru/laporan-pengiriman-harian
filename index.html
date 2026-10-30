@@ -134,6 +134,8 @@ input:focus, select:focus, textarea:focus { border-color: var(--accent); outline
 .group { background: var(--panel); border-top: 3px solid var(--cc); border-radius: 3px; box-shadow: 0 1px 1px rgba(0,0,0,.1); min-width: 0; }
 .group header { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-bottom: 1px solid #f4f4f4; }
 .group header h3 { margin: 0; font-size: 1.1rem; font-weight: 400; }
+.group header .salin { padding: 3px 10px; font-size: .8rem; background: #fff; color: var(--cc); border: 1px solid var(--cc); border-radius: 3px; }
+.group header .salin:hover { background: var(--cc); color: #fff; }
 .group header .n { margin-left: auto; background: var(--cc); color: #fff; border-radius: 10px; padding: 1px 9px; font-size: .85rem; font-weight: 700; }
 .group .dot { display: none; }
 .group ol { list-style: none; margin: 0; padding: 4px 10px 10px; max-height: 420px; overflow-y: auto; font-variant-numeric: tabular-nums; }
@@ -345,6 +347,7 @@ input:focus, select:focus, textarea:focus { border-color: var(--accent); outline
     { id: "LAIN", name: "Lainnya", sheet: "LAINNYA", color: "--c-lain", opsional: true, pendek: "Lain" }
   ];
   var BY_ID = {};
+  var SALIN_RESI = ["JNT", "JNE"]; // kurir yang punya tombol "Salin Resi"
   COURIERS.forEach(function (c) { BY_ID[c.id] = c; });
   // Kurir yang namanya diketik manual disimpan dengan kode "X:NAMA". Kurir ini (dan kode lain yang tidak
   // dikenal) didaftarkan otomatis supaya tampil, dihitung, dan ikut di PDF/Excel.
@@ -640,7 +643,8 @@ input:focus, select:focus, textarea:focus { border-color: var(--accent); outline
     COURIERS.forEach(function (k) {
       var list = d.items.filter(function (it) { return it.c === k.id; });
       if (!list.length) return;
-      gh += '<section class="group" id="g-' + encodeURIComponent(k.id) + '" style="--cc:var(' + k.color + ')"><header><span class="dot"></span><h3>' + esc(k.name) + '</h3><span class="n">' + list.length + '</span></header><ol>';
+      gh += '<section class="group" id="g-' + encodeURIComponent(k.id) + '" style="--cc:var(' + k.color + ')"><header><span class="dot"></span><h3>' + esc(k.name) + '</h3>' +
+        (SALIN_RESI.indexOf(k.id) >= 0 ? '<button class="salin" data-salin="' + esc(k.id) + '"><i class="fa-solid fa-copy"></i> Salin Resi</button>' : "") + '<span class="n">' + list.length + '</span></header><ol>';
       list.forEach(function (it, i) {
         var le = lengthError(it.r), cls = (it.r === lastAdded ? "flash" : "") + (le ? " badlen" : "");
         gh += '<li' + (cls ? ' class="' + cls.trim() + '"' : "") + '><span class="no">' + (i + 1) + '</span><span class="rs"' + (le ? ' title="' + esc(le.need + ", terbaca " + le.got) + '"' : "") + '>' + esc(it.r) + (le ? '<span class="flag">SALAH ' + le.got + ' kar.</span>' : "") + '</span>' +
@@ -660,7 +664,14 @@ input:focus, select:focus, textarea:focus { border-color: var(--accent); outline
     resetClear();
   }
 
+  // Tombol "Salin Resi" di judul kurir (SALIN_RESI): salin semua resi kurir itu, satu resi per baris
   $("groups").addEventListener("click", function (e) {
+    var sb = e.target.closest ? e.target.closest("[data-salin]") : null;
+    if (sb) {
+      var kid = sb.getAttribute("data-salin"), rs = day().items.filter(function (it) { return it.c === kid; }).map(function (it) { return it.r; });
+      salinTeks(rs.join("\n"), rs.length + " resi " + BY_ID[kid].name + " disalin.");
+      return;
+    }
     var r = e.target.getAttribute("data-del"); if (!r) return;
     var d = day(), idx = d.items.findIndex(function (it) { return it.r === r; });
     if (idx < 0) return;
@@ -1108,16 +1119,19 @@ input:focus, select:focus, textarea:focus { border-color: var(--accent); outline
     var tsv = sheetRows(cur).rows.map(function (r) {
       var out = []; for (var i = 0; i < r.length; i++) out.push(r[i] == null ? "" : r[i]); return out.join("\t");
     }).join("\n");
-    var done = function () { toast("Tabel disalin. Tempel di Excel dengan Ctrl+V."); };
+    salinTeks(tsv, "Tabel disalin. Tempel di Excel dengan Ctrl+V.");
+  };
+  function salinTeks(teks, pesan) {
+    var done = function () { toast(pesan); };
     try {
-      navigator.clipboard.writeText(tsv).then(done, fallback);
+      navigator.clipboard.writeText(teks).then(done, fallback);
     } catch (e) { fallback(); }
     function fallback() {
-      var ta = document.createElement("textarea"); ta.value = tsv; document.body.appendChild(ta); ta.select();
+      var ta = document.createElement("textarea"); ta.value = teks; document.body.appendChild(ta); ta.select();
       try { document.execCommand("copy"); done(); } catch (e) { say("bad", "Gagal menyalin otomatis."); }
       ta.remove();
     }
-  };
+  }
 
   // ---------- scan kamera HP ----------
   // Live: kamera terus membaca barcode. Foto: ambil gambar label, barcode dibaca dari foto
