@@ -67,6 +67,15 @@ if (!password_verify($pin, $config['pin'])) {
 }
 if ($gagal['n'] > 0) @unlink($gagalF);
 
+// Catatan file cadangan manual (tombol "Cadangkan semua"), berlaku untuk semua komputer.
+// mulai = bulan pertama catatan ini ada; pengingat awal bulan baru berlaku mulai bulan berikutnya.
+$CADMANUAL = $DATA . '/cadangan-manual.json';
+function infoCadangan($f) {
+  $c = bacaJson($f);
+  if (!$c || empty($c['mulai'])) { $c = array('mulai' => date('Y-m'), 'terakhir' => ''); tulis($f, json_encode($c)); }
+  return array('mulai' => $c['mulai'], 'terakhir' => isset($c['terakhir']) ? $c['terakhir'] : '');
+}
+
 function semuaHari($HARI) {
   $days = array();
   foreach (glob($HARI . '/*.json') as $f) {
@@ -122,7 +131,16 @@ if ($a === 'load') {
     $keys[] = $k;
     if (filemtime($f) >= $since) { $d = bacaJson($f); if ($d) $days[$k] = $d; }
   }
-  out(200, array('ok' => true, 'days' => (object)$days, 'keys' => $keys, 'sekarang' => $sekarang));
+  out(200, array('ok' => true, 'days' => (object)$days, 'keys' => $keys, 'sekarang' => $sekarang, 'cadanganManual' => infoCadangan($CADMANUAL)));
+}
+
+// Dipanggil setelah sebuah komputer mengunduh file cadangan manual
+if ($a === 'catatcadangan') {
+  if (!$post) out(405, array('ok' => false));
+  $c = infoCadangan($CADMANUAL);
+  $c['terakhir'] = date('Y-m-d');
+  tulis($CADMANUAL, json_encode($c));
+  out(200, array('ok' => true, 'cadanganManual' => $c));
 }
 
 if ($a === 'save') {
@@ -175,7 +193,7 @@ if ($a === 'save') {
     while (count($files) > $SIMPAN_CADANGAN) unlink(array_shift($files));
   }
   flock($kunci, LOCK_UN);
-  out(200, array('ok' => true, 'days' => (object)$hasil, 'waktu' => date('c')));
+  out(200, array('ok' => true, 'days' => (object)$hasil, 'waktu' => date('c'), 'cadanganManual' => infoCadangan($CADMANUAL)));
 }
 
 if ($a === 'backups') {

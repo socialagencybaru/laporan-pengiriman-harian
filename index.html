@@ -929,23 +929,30 @@ input:focus, select:focus, textarea:focus { border-color: var(--accent); outline
     if (!Object.keys(out.days).length) { say("warn", "Belum ada data untuk dicadangkan."); return; }
     saveFile("Cadangan Pengiriman Harian " + iso(new Date()) + ".json", JSON.stringify(out, null, 1), "application/json").then(function () {
       try { localStorage.setItem(BACKUP_KEY, iso(new Date())); } catch (e) {}
+      catatCadanganServer();
     });
   };
-  // Cadangan file bulanan (per komputer): mulai tanggal 1 tiap bulan, kalau komputer ini belum membuat file cadangan
-  // di bulan berjalan, muncul pop-up sebelum resi baru diinput. Kalau dilewati, pop-up muncul lagi besok.
-  var BACKUP_KEY = "lph.cadangan.terakhir", TUNDA_KEY = "lph.cadangan.tunda";
+  // Cadangan file bulanan: mulai tanggal 1 tiap bulan, kalau belum ada komputer mana pun yang membuat file cadangan
+  // di bulan berjalan (dicatat di server), muncul pop-up sebelum resi baru diinput. Kalau dilewati, muncul lagi besok.
+  // Komputer yang belum masuk dengan PIN tidak ditanya. Bulan pertama catatan server dibuat juga tidak ditanya.
+  var BACKUP_KEY = "lph.cadangan.terakhir", TUNDA_KEY = "lph.cadangan.tunda", CAD_SRV_KEY = "lph.cadangan.server";
   function cadanganTerakhir() { try { return localStorage.getItem(BACKUP_KEY) || ""; } catch (e) { return ""; } }
+  function cadanganServer() { try { return JSON.parse(localStorage.getItem(CAD_SRV_KEY) || "null"); } catch (e) { return null; } }
+  function setCadanganServer(c) { if (c && c.mulai) try { localStorage.setItem(CAD_SRV_KEY, JSON.stringify({ mulai: c.mulai, terakhir: c.terakhir || "" })); } catch (e) {} }
   function adaDataNyata() { return Object.keys(state.days).some(function (k) { var d = state.days[k]; return d.items.some(function (it) { return !it.s; }) || (!d.sample && hasData(d)); }); }
   function perluCadangan() {
-    if (!adaDataNyata()) return false;
-    var now = new Date(), last = cadanganTerakhir(), tunda = "";
+    var cs = cadanganServer();
+    if (!cs || !adaDataNyata()) return false;
+    var now = new Date(), tunda = "";
     try { tunda = localStorage.getItem(TUNDA_KEY) || ""; } catch (e) {}
     var awalBulan = iso(new Date(now.getFullYear(), now.getMonth(), 1));
-    return (!last || last < awalBulan) && tunda !== iso(now);
+    if (cs.mulai >= awalBulan.slice(0, 7)) return false;
+    var last = [cadanganTerakhir(), cs.terakhir || ""].sort().pop();
+    return last < awalBulan && tunda !== iso(now);
   }
   function tanyaCadangan() {
-    var last = cadanganTerakhir();
-    var ya = window.confirm("Cadangan bulan " + BULAN[new Date().getMonth()] + " belum dibuat di komputer ini" +
+    var cs = cadanganServer() || {}, last = [cadanganTerakhir(), cs.terakhir || ""].sort().pop();
+    var ya = window.confirm("Cadangan bulan " + BULAN[new Date().getMonth()] + " belum dibuat" +
       (last ? " (terakhir: " + longDate(last) + ")" : "") + ".\n\nOK = unduh file cadangan sekarang, lalu simpan di folder SynologyDrive.\nBatal = lanjut tanpa cadangan (diingatkan lagi besok).");
     if (ya) $("backupBtn").click();
     else { try { localStorage.setItem(TUNDA_KEY, iso(new Date())); } catch (e) {} }
@@ -1312,6 +1319,7 @@ input:focus, select:focus, textarea:focus { border-color: var(--accent); outline
       return api("save", { ops: ops }).then(function (j) {
         if (j.status === 401 || j.status === 429) return srvAuthFail(j);
         if (!j.ok) throw new Error(j.error || "server " + j.status);
+        setCadanganServer(j.cadanganManual);
         terapkan(j.days || {});
       });
     });
@@ -1327,9 +1335,14 @@ input:focus, select:focus, textarea:focus { border-color: var(--accent); outline
         // Tanggal yang sudah dihapus di server (dikosongkan di perangkat lain)
         Object.keys(base).forEach(function (k) { if (!semua[k] && !(k in days)) days[k] = null; });
         if (j.sekarang) since = j.sekarang - 3;
+        setCadanganServer(j.cadanganManual);
         terapkan(days);
       });
     }).then(function () { if (belumTerkirim().length) return srvPush(); });
+  }
+  function catatCadanganServer() {
+    if (!srv.on || !srv.ok) return;
+    api("catatcadangan", {}).then(function (j) { if (j.ok) setCadanganServer(j.cadanganManual); }).catch(function () {});
   }
   function srvLogin() {
     srv.ok = true; srvBox(""); $("srvBackups").hidden = false; $("pinChangeBtn").hidden = false; showSaved();
